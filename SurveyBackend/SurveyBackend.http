@@ -1,0 +1,14 @@
+@SurveyBackend_HostAddress = https://localhost:7224
+
+GET {{SurveyBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+
+POST {{SurveyBackend_HostAddress}}/survey/checkUserId
+Content-Type: application/json
+
+"qwq"
+
+###
