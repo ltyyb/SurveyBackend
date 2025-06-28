@@ -12,3 +12,7 @@ Content-Type: application/json
 "qwq"
 
 ###
+
+GET {{SurveyBackend_HostAddress}}/survey/getSurvey
+
+###

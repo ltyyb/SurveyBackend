@@ -1,0 +1,4 @@
+{
+  "version": "V1.0.0",
+  "surveyJson": "{\"title\":\"用户调查问卷\",\"questions\":[{\"id\":1,\"type\":\"single\",\"question\":\"你的性别？\",\"options\":[\"男\",\"女\",\"其他\"]},{\"id\":2,\"type\":\"text\",\"question\":\"你对本产品的建议？\"}]}"
+}
