@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 using MySqlConnector;
 
 namespace SurveyBackend.Controllers
@@ -52,20 +53,22 @@ namespace SurveyBackend.Controllers
             {
                 return BadRequest("Invalid survey submission data.");
             }
+
             var surveyUser = await SurveyUser.GetUserByIdAsync(submission.userId);
             if (surveyUser is null)
             {
                 return NotFound($"No user found with UserId: {submission.userId}");
             }
 
-
-
-            // TODO: 检查 Answers 是否为JSON避免数据库CAST出错
-
-
+            // 检查 Answers 是否为JSON避免数据库CAST出错
+            if (!IsValidJson(submission.Answers))
+            {
+                return BadRequest("Answers is not a valid JSON.");
+            }
 
             // 存储结果到数据库
             bool success = await SaveSurvey(surveyUser, submission.Answers);
+
             if (success)
             {
                 _logger.LogInformation($"Survey submitted for UserId: {submission.userId} ({surveyUser.QQId})");
@@ -77,6 +80,18 @@ namespace SurveyBackend.Controllers
                 return StatusCode(500, "Failed to save survey response.");
             }
 
+        }
+        private static bool IsValidJson(string json)
+        {
+            try
+            {
+                JsonDocument.Parse(json);
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
         }
 
         private async Task<bool> SaveSurvey(SurveyUser user, string answerJson)
