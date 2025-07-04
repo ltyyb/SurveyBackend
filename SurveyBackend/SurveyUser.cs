@@ -14,7 +14,7 @@
         /// </summary>
         /// <param name="userId"></param>
         /// <returns></returns>
-        public static SurveyUser? GetUserById(string userId)
+        public async static Task<SurveyUser?> GetUserByIdAsync(string userId)
         {
             if (userId != "qwq") return null;
             // 从数据库中获取 UserId 对应的 QQ号

@@ -11,3 +11,13 @@ Content-Type: application/json
 GET {{SurveyBackend_HostAddress}}/survey/getSurvey
 
 ###
+
+POST {{SurveyBackend_HostAddress}}/survey/submitSurvey
+Content-Type: application/json
+
+{
+  "userId": "qwq",
+  "Answers": "{\"1\": \"A\", \"2\": \"B\", \"3\": \"C\", \"4\": \"D\", \"5\": \"E\"}"
+}
+
+###
