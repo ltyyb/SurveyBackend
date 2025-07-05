@@ -1,23 +1,30 @@
 @SurveyBackend_HostAddress = https://localhost:7224
 
 
-POST {{SurveyBackend_HostAddress}}/survey/checkUserId
+POST {{SurveyBackend_HostAddress}}/api/user/checkUserId
 Content-Type: application/json
 
-"qwq"
+"afiuygasfigasfiogyds"
 
 ###
 
-GET {{SurveyBackend_HostAddress}}/survey/getSurvey
+GET {{SurveyBackend_HostAddress}}/api/survey/getSurvey
 
 ###
 
-POST {{SurveyBackend_HostAddress}}/survey/submitSurvey
+POST {{SurveyBackend_HostAddress}}/api/survey/submitSurvey
 Content-Type: application/json
 
 {
-  "userId": "qwq",
-  "Answers": "{\"a\": \"a\"}"
+  "userId": "afiuygasfigasfiogyds",
+  "Answers": "{\"ajhd\": \"sefs\", \"ret4\": \"drgfb\"}"
 }
+
+###
+
+POST {{SurveyBackend_HostAddress}}/api/user/registerUserId
+Content-Type: application/json
+
+"Dj99jwraMl2Bh3FuZA0juuCZZwDjvJpyjz8Xhkyyf20hQdgCJGVFcL2cHC+adqiPcl0cHQWDwRPmyBkdLAy1tqCbN4GQ8bXj8td/+ww4zLSPTkVptL+wv1JM9b0GRLhg1gt9GwXkXwoOXAIvdWwpJduqqzdxM92QiV8LRLfLkMt7Gr3kOHtImRa0Xl+PMQWp9Svka4QK3N4Uuik9DqYsC9jV9PKbN/fjgP8W8BKjRElFBaPA7dUtPs5K6jxmouaoB4vpygfkWq0UxuXFvOmQqMKw+MbfV51XjkVfNpYcd2CMosqFTwbm1yfThdUxEUWq6RjMdrv1sr/8bea9IsJwgwh4AJwn2REFyxq+64Q4c+sbaeny47PRInLN2F43q6RsS4Erl6yEqNFPhiE5UaNq3XB4G3QIE6S3l5SHAiS1+UI6JrLbJhskhqM23MvOhu0VqDlidXJuW4rWCrY7IfsyWctAKf+CGjuo5dLUO6+puBfhhr6xbocYuBjC7fFy52Q1KmUURXEg1EWCYWJb8LvkDUBTAgcDp7FCdaFg/VwycDEeR6sfpU4nsJv9GYkUHRqj2XU0Hl/0KM2lSALM5nBp6RSLqilZpcyplh51dPa4zverumGHK5FdIyKavfHJ0LmhYY4oLGL2BbTGFYRcg4WeoaXXzmd8HN2nQvt0tkwqpGg="
 
 ###

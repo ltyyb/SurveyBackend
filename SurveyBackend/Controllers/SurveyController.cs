@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using MySqlConnector;
+using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace SurveyBackend.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("api/[controller]")]
     public class SurveyController : ControllerBase
     {
         private readonly IConfiguration _configuration;
@@ -28,22 +29,7 @@ namespace SurveyBackend.Controllers
             return Ok(survey.SurveyJson);
         }
 
-        // 一个接受POST的方法，允许前端POST UserId, 后端尝试创建 SurveyUser
-        [HttpPost("checkUserId")]
-        public async Task<ActionResult<SurveyUser>> CheckUserId([FromBody] string userId)
-        {
-            if (string.IsNullOrEmpty(userId))
-            {
-                return BadRequest("UserId cannot be null or empty.");
-            }
-            // 使用 SurveyUser 的工厂方法获取用户信息
-            var surveyUser = await SurveyUser.GetUserByIdAsync(userId);
-            if (surveyUser is null)
-            {
-                return NotFound($"No user found with UserId: {userId}");
-            }
-            return Ok(surveyUser);
-        }
+
 
         // 一个接受POST的方法, 前端通过此接口提供 userId 及 问卷结果JSON 提交结果
         [HttpPost("submitSurvey")]
@@ -53,8 +39,14 @@ namespace SurveyBackend.Controllers
             {
                 return BadRequest("Invalid survey submission data.");
             }
+            var connStr = _configuration.GetConnectionString("DefaultConnection");
 
-            var surveyUser = await SurveyUser.GetUserByIdAsync(submission.userId);
+            if (string.IsNullOrEmpty(connStr))
+            {
+                _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                return StatusCode(500, "Server Config Error");
+            }
+            var surveyUser = await SurveyUser.GetUserByIdAsync(submission.userId, _logger, connStr);
             if (surveyUser is null)
             {
                 return NotFound($"No user found with UserId: {submission.userId}");
@@ -85,7 +77,7 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                JsonDocument.Parse(json);
+                var jsonDoc = JsonDocument.Parse(json);
                 return true;
             }
             catch (JsonException)
@@ -99,6 +91,12 @@ namespace SurveyBackend.Controllers
             try
             {
                 var connStr = _configuration.GetConnectionString("DefaultConnection");
+
+                if (string.IsNullOrEmpty(connStr))
+                {
+                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                    return false;
+                }
 
                 await using var conn = new MySqlConnection(connStr);
                 await conn.OpenAsync();
