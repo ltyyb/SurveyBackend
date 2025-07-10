@@ -6,6 +6,9 @@ namespace SurveyBackend
     public class Survey
     {
         public string Version { get; private set; } = "V0.0.0";
+        /// <summary>
+        /// 原始 Survey Json，不应直接被获取，应使用 <seealso cref="GetSpecificSurveyJson(string)"/> 方法获得客制化问卷 Json.
+        /// </summary>
         public string SurveyJson { get; private set; } = string.Empty;
         private string filePath = string.Empty;
 
@@ -69,6 +72,18 @@ namespace SurveyBackend
             // 更新当前实例的属性
             Version = loadedSurvey.Version;
             SurveyJson = loadedSurvey.SurveyJson;
+        }
+        /// <summary>
+        /// 替换 QQ号 占位符获得指定用户的客制化问卷 Json。
+        /// </summary>
+        /// <param name="qqId"></param>
+        /// <returns></returns>
+        public string GetSpecificSurveyJson(string qqId)
+        {
+            // 替换 SurveyJson 中的 {Specific_QQId} 占位符
+            string originalJson = SurveyJson;
+            string specificJson = originalJson.Replace("{Specific_QQId}", qqId);
+            return specificJson;
         }
     }
 }

@@ -8,9 +8,9 @@
             {
                 if (args[0] == "-p")
                 {
-                    if (args.Length != 3 || args.Length != 4)
+                    if (args.Length != 3 && args.Length != 4)
                     {
-                        Console.WriteLine("参数数量不对。\n  Usage: Utilities -p <version> <surveyJsonFilePath> [outputFilePath]");
+                        Console.WriteLine($"参数数量{args.Length}不对。\n  Usage: Utilities -p <version> <surveyJsonFilePath> [outputFilePath]");
                     }
                     else
                     {
