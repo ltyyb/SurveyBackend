@@ -213,5 +213,15 @@ namespace SurveyBackend
             return await CheckValueExistsAsync(connStr, "QQUsers", "QQId", QQId);
         }
 
+
+        public async static Task<bool> IsUserExisted(string qqId, string connStr)
+        {
+            var surveyUser = new SurveyUser
+            {
+                QQId = qqId
+            };
+            return await surveyUser.IsUserExisted(connStr);
+        }
+
     }
 }

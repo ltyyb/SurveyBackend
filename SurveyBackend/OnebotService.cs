@@ -32,6 +32,7 @@ namespace SurveyBackend
         private readonly IConfiguration _configuration;
         private string? connStr;
         private HttpApiClient? onebotApi = null;
+        private bool _isConnected = false;
 
         public OnebotService(ILogger<OnebotService> logger, IConfiguration configuration)
         {
@@ -56,8 +57,17 @@ namespace SurveyBackend
                 listener.SocketDisconnected += () =>
                 {
                     _logger.LogWarning("WebSocket连接已断开");
+                    _isConnected = false;
                 };
-
+                listener.EventPosted += (_) =>
+                {
+                    _logger.LogInformation("WebSocket连接已建立");
+                    _isConnected = true;
+                };
+                listener.OnExceptionWithRawContent += (ex, rawContent) =>
+                {
+                    _logger.LogError(ex, "OneBot 上报发生异常，原始内容: {rawContent}", rawContent);
+                };
                 listener.MessageEvent += async (api, e) =>
                 {
 
@@ -74,7 +84,14 @@ namespace SurveyBackend
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogInformation("后台服务运行中：{time}", DateTimeOffset.Now);
+                if (_isConnected)
+                {
+                    _logger.LogInformation("已连接 OneBot 实现 | OneBot 后台服务运行中：{time}", DateTimeOffset.Now);
+                }
+                else
+                {
+                    _logger.LogInformation("未连接 OneBot 实现 | OneBot 后台服务运行中：{time}", DateTimeOffset.Now);
+                }
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // 每1分钟执行一次
             }
 
@@ -93,62 +110,9 @@ namespace SurveyBackend
             else if (args.Length == 2)
             {
                 var surveyId = args[1];
-                if (string.IsNullOrWhiteSpace(surveyId))
+                bool flowControl = await ProcessGetCommand(e, surveyId);
+                if (!flowControl)
                 {
-                    // 发送帮助信息
-                    await SendMessage(e.Endpoint, _helpText);
-                    return;
-                }
-                // 等价 get 指令
-                if (surveyId == "entr")
-                {
-                    var qqId = e.UserId;
-                    await SendMessage(e.Endpoint, "正在注册用户...");
-                    var surveyUser = await SurveyUser.GetUserByQQIdAsync(qqId.ToString(), _logger, connStr!);
-                    if (surveyUser is null)
-                    {
-                        await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n surveyUser is null.");
-                        return;
-                    }
-
-                    if (await surveyUser.IsUserExisted(connStr!))
-                    {
-                        await SendMessageWithAt(e.Endpoint, e.UserId, "用户已存在。跳过注册。");
-                        surveyUser = await SurveyUser.CreateUserByQQId(qqId.ToString(), connStr!);
-                        if (surveyUser is null)
-                        {
-                            _logger.LogWarning("Cannot get user info from qqId {qqId}", qqId.ToString());
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "无法获取已有用户信息。请联系管理员。");
-                            return;
-                        }
-                    }
-                    else if (!await surveyUser.RegisterAsync(_logger, connStr!))
-                    {
-                        await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n Cannot register user.");
-                        return;
-                    }
-
-                    var link = $"https://ltyyb.auntstudio.com/survey/entr?userId={surveyUser.UserId}";
-                    var atMessage = SendingMessage.At(e.UserId);
-                    var message = new SendingMessage($"""
-
-                        已成功注册 Survey 用户。
-                        请访问链接下方链接:
-                        
-                        {link}
-
-                        完成问卷。
-                        如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
-
-                        请注意看清链接所属用户，请勿填写他人问卷链接。
-                        """);
-                    await SendMessage(e.Endpoint, atMessage + message);
-                }
-                else
-                {
-                    // 发送帮助信息
-                    var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
-                    await SendMessage(e.Endpoint, errorMsg + _helpText);
                     return;
                 }
 
@@ -158,56 +122,10 @@ namespace SurveyBackend
                 if (args[1] == "get")
                 {
                     var surveyId = args[2];
-                    if (string.IsNullOrWhiteSpace(surveyId))
+                    bool flowControl = await ProcessGetCommand(e, surveyId);
+                    if (!flowControl)
                     {
-                        // 发送帮助信息
-                        await SendMessage(e.Endpoint, _helpText);
                         return;
-                    }
-                    // 等价 get 指令
-                    if (surveyId == "entr")
-                    {
-                        var qqId = e.UserId;
-                        await SendMessageWithAt(e.Endpoint, e.UserId, "正在注册用户...");
-                        var surveyUser = await SurveyUser.CreateUserByQQId(qqId.ToString(), connStr!);
-                        if (surveyUser is null)
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n surveyUser is null.");
-                            return;
-                        }
-
-                        if (await surveyUser.IsUserExisted(connStr!))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "用户已存在。跳过注册。");
-                            surveyUser = await SurveyUser.GetUserByQQIdAsync(qqId.ToString(), _logger, connStr!);
-                            if (surveyUser is null)
-                            {
-                                _logger.LogWarning("Cannot get user info from qqId {qqId}", qqId.ToString());
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法获取已有用户信息。请联系管理员。");
-                                return;
-                            }
-                        }
-                        else if (!await surveyUser.RegisterAsync(_logger, connStr!))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n Cannot register user.");
-                            return;
-                        }
-                        
-
-                        var link = $"https://ltyyb.auntstudio.com/survey/entr?userId={surveyUser.UserId}";
-                        var message = new SendingMessage($"""
-
-                        已成功注册 Survey 用户。
-                        请访问链接下方链接:
-                        
-                        {link}
-
-                        完成问卷。
-                        如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
-
-                        请注意看清链接所属用户，请勿填写他人问卷链接。
-                        """);
-                        await SendMessageWithAt(e.Endpoint, e.UserId, message);
                     }
                 }
                 else if (args[1] == "review")
@@ -236,6 +154,80 @@ namespace SurveyBackend
                 }
             }
         }
+
+        private async Task<bool> ProcessGetCommand(Message e, string surveyId)
+        {
+            if (string.IsNullOrWhiteSpace(surveyId))
+            {
+                // 发送帮助信息
+                await SendMessage(e.Endpoint, _helpText);
+                return false;
+            }
+
+            if (surveyId == "entr")
+            {
+                var qqId = e.UserId;
+                await SendMessage(e.Endpoint, "正在注册用户...");
+
+                SurveyUser? surveyUser;
+
+                if (await SurveyUser.IsUserExisted(e.UserId.ToString(), connStr!))
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, "用户已存在。跳过注册。");
+                    surveyUser = await SurveyUser.GetUserByQQIdAsync(qqId.ToString(), _logger, connStr!);
+                    if (surveyUser is null)
+                    {
+                        _logger.LogWarning("Cannot get user info from qqId {qqId}", qqId.ToString());
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法获取已有用户信息。请联系管理员。");
+                        return false;
+                    }
+                }
+                else
+                {
+                    surveyUser = await SurveyUser.CreateUserByQQId(qqId.ToString(), connStr!);
+
+                    if (surveyUser is null)
+                    {
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n surveyUser is null.");
+                        return false;
+                    }
+
+
+                    else if (!await surveyUser.RegisterAsync(_logger, connStr!))
+                    {
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n Cannot register user.");
+                        return false;
+                    }
+                }
+
+
+                var link = $"https://ltyyb.auntstudio.com/survey/entr?userId={surveyUser.UserId}";
+                var atMessage = SendingMessage.At(e.UserId);
+                var message = new SendingMessage($"""
+
+                        已成功注册 Survey 用户。
+                        请访问链接下方链接:
+                        
+                        {link}
+
+                        完成问卷。
+                        如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
+
+                        请注意看清链接所属用户，请勿填写他人问卷链接。
+                        """);
+                await SendMessage(e.Endpoint, atMessage + message);
+            }
+            else
+            {
+                // 发送帮助信息
+                var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
+                await SendMessage(e.Endpoint, errorMsg + _helpText);
+                return false;
+            }
+
+            return true;
+        }
+
         public async Task<SendMessageResponseData?> SendMessage(Sisters.WudiLib.Posts.Endpoint endpoint, string message)
         {
             if (onebotApi is null)
