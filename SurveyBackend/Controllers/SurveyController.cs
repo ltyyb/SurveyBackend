@@ -1,9 +1,8 @@
 ﻿using Microsoft.AspNetCore.Cors;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SurveyBackend.Controllers
 {
@@ -14,6 +13,7 @@ namespace SurveyBackend.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<SurveyController> _logger;
+        private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
 
         public SurveyController(ILogger<SurveyController> logger, IConfiguration configuration)
         {
@@ -28,7 +28,7 @@ namespace SurveyBackend.Controllers
         {
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return BadRequest("UserId cannot be null or empty.");
+                return BadRequest(new {status = -1, error = "UserId cannot be null or empty." });
             }
 
             var connStr = _configuration.GetConnectionString("DefaultConnection");
@@ -41,33 +41,52 @@ namespace SurveyBackend.Controllers
             var surveyUser = await SurveyUser.GetUserByIdAsync(userId, _logger, connStr);
             if (surveyUser is null)
             {
-                return BadRequest($"Unable to find user with the provided UserId {userId}.");
+                return BadRequest(new { status = -2, error = $"Unable to find user with the provided UserId {userId}."});
             }
-
-            var survey = Survey.Instance;
-            if (survey is null)
+            if (await CheckValueExistsAsync(connStr, "EntranceSurveyResponses", "QQId", surveyUser.QQId))
             {
-                return NotFound("Server-side Error: No active survey found.");
+                return BadRequest(new { status = -3, error = "Response of this QQId is already exist." });
             }
-            var surveyJson = survey.GetSpecificSurveyJson(surveyUser.QQId);
-
-            return Ok(surveyJson);
+            var surveyPkg = SurveyPkgInstance.Instance;
+            if (surveyPkg is null)
+            {
+                return NotFound(new { status = -4, error = "Server hasn't load any survey yet."});
+            }
+            if (surveyPkg.TryGetSurvey(out var survey) && survey is not null)
+            {
+                return Ok(new { status = 0,
+                    data = new
+                    {
+                        surveyJson = survey.GetSpecificSurveyJsonByQQId(surveyUser.QQId),
+                        version = survey.Version,
+                        qqId = surveyUser.QQId
+                    }
+                });
+            }
+            else
+            {
+                return NotFound(new {status = -4, error = "No active survey available at the moment."});
+            }
         }
 
         public class SurveySubmission
         {
-            public string userId { get; set; } = string.Empty;
+            public string UserId { get; set; } = string.Empty;
+            public string Version { get; set; } = string.Empty;
             public string Answers { get; set; } = string.Empty;
         }
 
-        // 一个接受POST的方法, 前端通过此接口提供 userId 及 问卷结果JSON 提交结果
+        // 一个接受POST的方法, 前端通过此接口提供 UserId 及 问卷结果JSON 提交结果
         [HttpPost("submitSurvey")]
         public async Task<ActionResult> SubmitSurveyAsync([FromBody] SurveySubmission submission)
         {
-            if (submission == null || string.IsNullOrWhiteSpace(submission.userId) || string.IsNullOrWhiteSpace(submission.Answers))
+            if (submission == null
+                || string.IsNullOrWhiteSpace(submission.UserId)
+                || string.IsNullOrWhiteSpace(submission.Answers)
+                || string.IsNullOrWhiteSpace(submission.Version))
             {
                 _logger.LogWarning("Invalid survey submission data.\n {payload}", submission);
-                return BadRequest(new {status = -1, error = "Invalid survey submission data." });
+                return BadRequest(new { status = -1, error = "Invalid survey submission data." });
             }
             var connStr = _configuration.GetConnectionString("DefaultConnection");
 
@@ -76,29 +95,37 @@ namespace SurveyBackend.Controllers
                 _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
                 return StatusCode(500, new { status = -500, error = "Server Config Error" });
             }
-            var surveyUser = await SurveyUser.GetUserByIdAsync(submission.userId, _logger, connStr);
+            var surveyUser = await SurveyUser.GetUserByIdAsync(submission.UserId, _logger, connStr);
             if (surveyUser is null)
             {
-                return NotFound(new { status = -2, error = $"No user found with UserId: {submission.userId}" });
+                return NotFound(new { status = -2, error = $"No user found with UserId: {submission.UserId}" });
             }
-
+            if (await CheckValueExistsAsync(connStr, "EntranceSurveyResponses", "QQId", surveyUser.QQId))
+            {
+                return BadRequest(new { status = -3, error = "Response of this QQId is already exist." });
+            }
             // 检查 Answers 是否为JSON避免数据库CAST出错
             if (!IsValidJson(submission.Answers))
             {
-                return BadRequest(new { status = -3, error = "Answers is not a valid JSON." });
+                return BadRequest(new { status = -4, error = "Answers is not a valid JSON." });
+            }
+            var surveyPkg = SurveyPkgInstance.Instance;
+            if (!surveyPkg.IsVersionValid(submission.Version))
+            {
+                return BadRequest(new { status = -5, error = $"Invalid survey version: {submission.Version}. Please check the version." });
             }
 
             // 存储结果到数据库
-            (bool success, string? responseId) = await SaveSurvey(surveyUser, submission.Answers);
+            (bool success, string? responseId) = await SaveSurvey(surveyUser, submission.Answers, submission.Version);
 
             if (success && !string.IsNullOrWhiteSpace(responseId))
             {
-                _logger.LogInformation($"Survey submitted for UserId: {submission.userId} ({surveyUser.QQId}), the responseId is {responseId}");
+                _logger.LogInformation($"Survey submitted for UserId: {submission.UserId} ({surveyUser.QQId}), the responseId is {responseId}");
                 return Ok(new { status = 0, responseId });
             }
             else
             {
-                _logger.LogError($"Failed to save survey for UserId: {submission.userId} ({surveyUser.QQId})");
+                _logger.LogError($"Failed to save survey for UserId: {submission.UserId} ({surveyUser.QQId})");
                 return StatusCode(500, new { status = -501, error = "Failed to save survey response." });
             }
 
@@ -114,18 +141,32 @@ namespace SurveyBackend.Controllers
         {
             if (string.IsNullOrWhiteSpace(dataSubmission.surveyId))
             {
-                return BadRequest(new { error = "Invaild SurveyId."});
+                return BadRequest(new { error = "Invaild SurveyId." });
             }
 
             var response = await GetResponseByResponseId(dataSubmission.surveyId);
             if (response is null)
             {
-                return NotFound(new { error = $"Something went wrong or no survey response found with the provided SurveyId: {dataSubmission.surveyId}"});
+                return NotFound(new { error = $"Something went wrong or no survey response found with the provided SurveyId: {dataSubmission.surveyId}" });
+            }
+
+            var surveyPkg = SurveyPkgInstance.Instance;
+            if (surveyPkg is null)
+            {
+                return NotFound(new { error = "Server-side Error: No active survey found." });
+            }
+            var surveyJson = surveyPkg.GetSurvey(response.SurveyVersion).GetSpecificSurveyJsonByQQId(response.QQId);
+            if (surveyJson is null)
+            {
+                _logger.LogError("Cannot get survey with version {v}", response.SurveyVersion);
+                return NotFound(new { error = "Cannot get survey of this response." });
             }
             return Ok(new
             {
-                userId = response.UserId,
-                Answers = response.SurveyAnswer
+                qqId = response.QQId,
+                version = response.SurveyVersion,
+                surveyJson,
+                answers = response.SurveyAnswer
             });
 
         }
@@ -133,9 +174,11 @@ namespace SurveyBackend.Controllers
         public class SurveyResponse
         {
             public string UserId { get; set; } = string.Empty;
+            public string QQId { get; set; } = string.Empty;
+            public string SurveyVersion { get; set; } = string.Empty;
             public string SurveyAnswer { get; set; } = string.Empty;
         }
-        private async Task<SurveyResponse?> GetResponseByResponseId (string responseId)
+        private async Task<SurveyResponse?> GetResponseByResponseId(string responseId)
         {
             try
             {
@@ -148,7 +191,7 @@ namespace SurveyBackend.Controllers
                 await using var conn = new MySqlConnection(connStr);
                 await conn.OpenAsync();
 
-                const string sql = "SELECT SurveyAnswer, UserId FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                const string sql = "SELECT SurveyAnswer, SurveyVersion, UserId, QQId FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
                 await using var cmd = new MySqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@responseId", responseId);
 
@@ -157,10 +200,14 @@ namespace SurveyBackend.Controllers
                 if (await reader.ReadAsync())  // 只读取第一行
                 {
                     string response = reader.GetString("SurveyAnswer");
+                    string version = reader.GetString("SurveyVersion");
                     string userId = reader.GetString("userId");
+                    string qqId = reader.GetString("QQId");
                     var responseData = new SurveyResponse
                     {
                         UserId = userId,
+                        SurveyVersion = version,
+                        QQId = qqId,
                         SurveyAnswer = response
                     };
                     return responseData;
@@ -179,7 +226,7 @@ namespace SurveyBackend.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error while reading survey response with id {id}.", responseId);
-                return null ;
+                return null;
             }
         }
 
@@ -198,7 +245,7 @@ namespace SurveyBackend.Controllers
         }
 
 
-        private async Task<(bool succ, string? responseId)> SaveSurvey(SurveyUser user, string answerJson)
+        private async Task<(bool succ, string? responseId)> SaveSurvey(SurveyUser user, string answerJson, string surveyVersion)
         {
             try
             {
@@ -213,7 +260,7 @@ namespace SurveyBackend.Controllers
                 await using var conn = new MySqlConnection(connStr);
                 await conn.OpenAsync();
 
-                const string sql = "INSERT INTO EntranceSurveyResponses (ResponseId, UserId, QQId, SurveyAnswer) VALUES (@responseId, @userId, @qqId, CAST(@surveyData AS JSON))";
+                const string sql = "INSERT INTO EntranceSurveyResponses (ResponseId, UserId, QQId, SurveyVersion, SurveyAnswer) VALUES (@responseId, @userId, @qqId, @version, CAST(@surveyData AS JSON))";
 
                 await using var cmd = new MySqlCommand(sql, conn);
                 // 生成一个唯一30字随机字符串 ResponseId
@@ -221,6 +268,7 @@ namespace SurveyBackend.Controllers
                 cmd.Parameters.AddWithValue("@responseId", responseId);
                 cmd.Parameters.AddWithValue("@userId", user.UserId);
                 cmd.Parameters.AddWithValue("@qqId", user.QQId);
+                cmd.Parameters.AddWithValue("@version", surveyVersion);
                 cmd.Parameters.AddWithValue("@surveyData", answerJson);
 
                 var rowsAffected = await cmd.ExecuteNonQueryAsync();
@@ -247,7 +295,28 @@ namespace SurveyBackend.Controllers
                 return (false, null);
             }
         }
+        
 
+        public static async Task<bool> CheckValueExistsAsync(string connectionString, string tableName, string columnName, object value)
+        {
+            // 防止 SQL 注入：只允许合法字符
+            if (!SafeNameRegex.IsMatch(tableName) || !SafeNameRegex.IsMatch(columnName))
+            {
+                throw new ArgumentException("表名或列名包含非法字符。只允许字母、数字和下划线。");
+            }
+
+            string query = $"SELECT EXISTS(SELECT 1 FROM `{tableName}` WHERE `{columnName}` = @value LIMIT 1);";
+
+            await using var connection = new MySqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            await using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@value", value);
+
+            object result = await command.ExecuteScalarAsync() ?? false;
+
+            return Convert.ToBoolean(result);
+        }
 
     }
 }

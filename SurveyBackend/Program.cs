@@ -25,10 +25,11 @@ namespace SurveyBackend
                 });
             });
 
+            builder.Services.AddHostedService<OnebotService>();
 
             var app = builder.Build();
 
-            Survey? survey;
+            SurveyPkgInstance? surveyPkg;
 
 
             // 初始化检查和 Load
@@ -72,7 +73,7 @@ namespace SurveyBackend
                     Console.ReadLine();
                     return;
                 }
-                survey = Survey.LoadFromFile(app.Configuration["Survey:packedSurveyPath"]!, surveyLogger);
+                surveyPkg = SurveyPkgInstance.LoadFromFile(app.Configuration["Survey:packedSurveyPath"]!, surveyLogger);
             }
 
             // Configure the HTTP request pipeline.
@@ -90,7 +91,7 @@ namespace SurveyBackend
             app.MapControllers();
             Timer timer = new Timer(_ =>
             {
-                survey?.Reload();
+                surveyPkg?.Reload();
             }, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
             app.Run();

@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-namespace Utilities
+namespace SurveyBackend
 {
 
     public class SurveyInfo
@@ -27,7 +27,6 @@ namespace Utilities
 
         [JsonPropertyName("latestVer")]
         public string LatestVer { get; set; } = string.Empty;
-
 
         [JsonPropertyName("surveys")]
         public Dictionary<string, SurveyInfo> Surveys { get; set; } = new();
