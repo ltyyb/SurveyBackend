@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SurveyBackend.Controllers;
 namespace SurveyBackend
@@ -24,8 +25,11 @@ namespace SurveyBackend
                         .AllowAnyHeader();
                 });
             });
+            builder.Services.AddSingleton<IOnebotService, OnebotService>();
+            builder.Services.AddSingleton<IHostedService>(sp =>
+                (OnebotService)sp.GetRequiredService<IOnebotService>());
+            builder.Services.AddSingleton<IHostedService, BackgroundPushingService>();
 
-            builder.Services.AddHostedService<OnebotService>();
 
             var app = builder.Build();
 
@@ -58,6 +62,40 @@ namespace SurveyBackend
                     Console.WriteLine("\n 按 Enter 退出");
                     Console.ReadLine();
                     return;
+                }
+                if (string.IsNullOrEmpty(app.Configuration["Bot:mainGroupId"]))
+                {
+                    mainLogger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
+                    Console.WriteLine("\n 按 Enter 退出");
+                    Console.ReadLine();
+                    return;
+                }
+                else
+                {
+                    if (!long.TryParse(app.Configuration["Bot:mainGroupId"], out long mainGroupId))
+                    {
+                        mainLogger.LogError($"主群组群号配置无效，无法将 \"{app.Configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
+                        Console.WriteLine("\n 按 Enter 退出");
+                        Console.ReadLine();
+                        return;
+                    }
+                }
+                if (string.IsNullOrEmpty(app.Configuration["Bot:verifyGroupId"]))
+                {
+                    mainLogger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
+                    Console.WriteLine("\n 按 Enter 退出");
+                    Console.ReadLine();
+                    return;
+                }
+                else
+                {
+                    if (!long.TryParse(app.Configuration["Bot:verifyGroupId"], out long verifyGroupId))
+                    {
+                        mainLogger.LogError($"审核群组群号配置无效，无法将 \"{app.Configuration["Bot:verifyGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为正确的群号。");
+                        Console.WriteLine("\n 按 Enter 退出");
+                        Console.ReadLine();
+                        return;
+                    }
                 }
                 if (string.IsNullOrEmpty(app.Configuration["Survey:packedSurveyPath"]))
                 {

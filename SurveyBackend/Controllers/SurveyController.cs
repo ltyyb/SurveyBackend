@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using MySqlConnector;
+using Sisters.WudiLib;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -13,12 +14,14 @@ namespace SurveyBackend.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<SurveyController> _logger;
+        private readonly IOnebotService _onebot;
         private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
 
-        public SurveyController(ILogger<SurveyController> logger, IConfiguration configuration)
+        public SurveyController(ILogger<SurveyController> logger, IConfiguration configuration, IOnebotService onebotService)
         {
             _configuration = configuration;
             _logger = logger;
+            _onebot = onebotService;
         }
 
 
@@ -28,7 +31,7 @@ namespace SurveyBackend.Controllers
         {
             if (string.IsNullOrWhiteSpace(userId))
             {
-                return BadRequest(new {status = -1, error = "UserId cannot be null or empty." });
+                return BadRequest(new { status = -1, error = "UserId cannot be null or empty." });
             }
 
             var connStr = _configuration.GetConnectionString("DefaultConnection");
@@ -41,7 +44,7 @@ namespace SurveyBackend.Controllers
             var surveyUser = await SurveyUser.GetUserByIdAsync(userId, _logger, connStr);
             if (surveyUser is null)
             {
-                return BadRequest(new { status = -2, error = $"Unable to find user with the provided UserId {userId}."});
+                return BadRequest(new { status = -2, error = $"Unable to find user with the provided UserId {userId}." });
             }
             if (await CheckValueExistsAsync(connStr, "EntranceSurveyResponses", "QQId", surveyUser.QQId))
             {
@@ -50,11 +53,13 @@ namespace SurveyBackend.Controllers
             var surveyPkg = SurveyPkgInstance.Instance;
             if (surveyPkg is null)
             {
-                return NotFound(new { status = -4, error = "Server hasn't load any survey yet."});
+                return NotFound(new { status = -4, error = "Server hasn't load any survey yet." });
             }
             if (surveyPkg.TryGetSurvey(out var survey) && survey is not null)
             {
-                return Ok(new { status = 0,
+                return Ok(new
+                {
+                    status = 0,
                     data = new
                     {
                         surveyJson = survey.GetSpecificSurveyJsonByQQId(surveyUser.QQId),
@@ -65,7 +70,7 @@ namespace SurveyBackend.Controllers
             }
             else
             {
-                return NotFound(new {status = -4, error = "No active survey available at the moment."});
+                return NotFound(new { status = -4, error = "No active survey available at the moment." });
             }
         }
 
@@ -260,21 +265,25 @@ namespace SurveyBackend.Controllers
                 await using var conn = new MySqlConnection(connStr);
                 await conn.OpenAsync();
 
-                const string sql = "INSERT INTO EntranceSurveyResponses (ResponseId, UserId, QQId, SurveyVersion, SurveyAnswer) VALUES (@responseId, @userId, @qqId, @version, CAST(@surveyData AS JSON))";
+                const string saveSql = "INSERT INTO EntranceSurveyResponses (ResponseId, UserId, QQId, ShortId, SurveyVersion, SurveyAnswer) VALUES (@responseId, @userId, @qqId, @shortId, @version, CAST(@surveyData AS JSON))";
 
-                await using var cmd = new MySqlCommand(sql, conn);
+                await using var cmd = new MySqlCommand(saveSql, conn);
                 // 生成一个唯一30字随机字符串 ResponseId
                 var responseId = Guid.NewGuid().ToString("N")[..30];
+                var shortId = responseId[..8]; // 取前8位作为 shortId
                 cmd.Parameters.AddWithValue("@responseId", responseId);
                 cmd.Parameters.AddWithValue("@userId", user.UserId);
                 cmd.Parameters.AddWithValue("@qqId", user.QQId);
+                cmd.Parameters.AddWithValue("@shortId", shortId);
                 cmd.Parameters.AddWithValue("@version", surveyVersion);
                 cmd.Parameters.AddWithValue("@surveyData", answerJson);
 
                 var rowsAffected = await cmd.ExecuteNonQueryAsync();
-                if (rowsAffected > 0)
+                bool saved = rowsAffected > 0;
+                if (saved)
                 {
-                    _logger.LogInformation($"Survey submitted to the database successfully for UserId: {user.UserId} ({user.QQId})");
+                    _logger.LogInformation($"Survey submitted to the database successfully for UserId: {user.UserId} ({user.QQId}), ResponseId is {responseId} ({shortId}).");
+                    await PushResponse(responseId, shortId);
                     return (true, responseId);
                 }
                 else
@@ -295,7 +304,7 @@ namespace SurveyBackend.Controllers
                 return (false, null);
             }
         }
-        
+
 
         public static async Task<bool> CheckValueExistsAsync(string connectionString, string tableName, string columnName, object value)
         {
@@ -316,6 +325,130 @@ namespace SurveyBackend.Controllers
             object result = await command.ExecuteScalarAsync() ?? false;
 
             return Convert.ToBoolean(result);
+        }
+
+        private async Task<bool> PushResponse(string responseId, string shortId)
+        {
+            try
+            {
+                long verifyGroupId;
+                long mainGroupId;
+                if (string.IsNullOrEmpty(_configuration["Bot:verifyGroupId"]))
+                {
+                    _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
+                    return false;
+                }
+                else
+                {
+                    if (!long.TryParse(_configuration["Bot:verifyGroupId"], out verifyGroupId))
+                    {
+                        _logger.LogError($"审核群组群号配置无效，无法将 \"{_configuration["Bot:verifyGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为正确的群号。");
+                        return false;
+                    }
+                }
+                if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
+                {
+                    _logger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
+                    return false;
+                }
+                else
+                {
+                    if (!long.TryParse(_configuration["Bot:mainGroupId"], out mainGroupId))
+                    {
+                        _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
+                        return false;
+                    }
+                }
+                var connStr = _configuration.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                    return false;
+                }
+                const string query = "SELECT IsPushed FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+
+                await using var connection = new MySqlConnection(connStr);
+                await connection.OpenAsync();
+
+                await using var command = new MySqlCommand(query, connection);
+                command.Parameters.AddWithValue("@responseId", responseId);
+
+                var result = await command.ExecuteScalarAsync();
+                bool isPushed;
+                if (result == null || result == DBNull.Value)
+                {
+                    isPushed = false;
+                }
+                else
+                {
+                    isPushed = Convert.ToBoolean(result);
+                }
+
+
+                if (!isPushed)
+                {
+                    var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
+                    var atAll = SendingMessage.AtAll();
+                    var message = new SendingMessage($"""
+
+                        有新的问卷填写提交 ヾ(•ω•`)o
+                        请各位群友抽空审核 ( •̀ ω •́ )✧
+                        -
+                        审阅链接:
+
+                        {link}
+
+                        如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
+                        请不要将此页面任何内容及链接分享给他人哦~
+                        -
+
+                        群内/私聊发送指令以投票:
+                            /survey vote {shortId} a - 同意
+                            /survey vote {shortId} d - 拒绝
+                        你可以随时更新您的投票结果。
+                        """);
+                    var pushResult = await _onebot.SendGroupMessageAsync(mainGroupId, atAll + message);
+                    if (pushResult?.MessageId > 0)
+                    {
+                        _logger.LogInformation($"Survey response {responseId} pushed to main group {mainGroupId} successfully.");
+                        // 更新数据库标记为已推送
+                        const string updateSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId";
+                        await using var updateCmd = new MySqlCommand(updateSql, connection);
+                        updateCmd.Parameters.AddWithValue("@responseId", responseId);
+                        var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
+                        if (rowsAffected > 0)
+                        {
+                            _logger.LogInformation($"Response voting data updated successfully for responseId: {responseId}");
+                            return true;
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Failed to update response voting data for responseId: {responseId}");
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogError($"Failed to push survey response {responseId} to main group {mainGroupId} (Cannot send, messageId = {pushResult?.MessageId}).");
+                        return false;
+                    }
+                }
+                else
+                {
+                    return true;
+                }
+
+            }
+            catch (MySqlException ex)
+            {
+                _logger.LogError(ex, "Database error while pushing survey response.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while pushing survey response.");
+                return false;
+            }
         }
 
     }

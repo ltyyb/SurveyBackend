@@ -10,7 +10,7 @@ using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
 {
-    public class OnebotService : BackgroundService
+    public class OnebotService : BackgroundService, IOnebotService
     {
         private readonly string _helpText = """
                          Survey Service 帮助
@@ -18,8 +18,15 @@ namespace SurveyBackend
             命令指南:
             /survey get <问卷标识符> - 注册用户并获取问卷链接
             /survey review <Response Id> - 获取指定回应的审查链接
+            /survey vote <Response Id> [a|d] - 投票问卷
             
             /survey get <问卷标识符> 指令可以简写为 /survey <问卷标识符>。
+            /survey vote 指令后的 Reponse Id 可以简写，具体请参照新问卷提交推送时提示的指令。后跟的 a 为同意，d 为拒绝。
+            
+            指令示例:
+              /survey get entr | 获取入群问卷链接
+              /survey vote a782da a | 同意某个问卷回应
+              /survey vote a782da d | 拒绝某个问卷回应
 
             =======================================================
             你可以在 https://github.com/ltyyb/SurveyBackend 获取后端源码
@@ -32,7 +39,7 @@ namespace SurveyBackend
         private readonly IConfiguration _configuration;
         private string? connStr;
         private HttpApiClient? onebotApi = null;
-        private bool _isConnected = false;
+        public bool IsAvailable { get; private set; } = false;
 
         public OnebotService(ILogger<OnebotService> logger, IConfiguration configuration)
         {
@@ -57,12 +64,14 @@ namespace SurveyBackend
                 listener.SocketDisconnected += () =>
                 {
                     _logger.LogWarning("WebSocket连接已断开");
-                    _isConnected = false;
+                    IsAvailable = false;
                 };
                 listener.EventPosted += (_) =>
                 {
-                    _logger.LogInformation("WebSocket连接已建立");
-                    _isConnected = true;
+                    if (!IsAvailable){
+                        _logger.LogInformation("WebSocket连接已建立, 收到事件。");
+                    }
+                    IsAvailable = true;
                 };
                 listener.OnExceptionWithRawContent += (ex, rawContent) =>
                 {
@@ -70,7 +79,7 @@ namespace SurveyBackend
                 };
                 listener.MessageEvent += async (api, e) =>
                 {
-
+                    
                     if (e.Content.Text.StartsWith("/survey"))
                     {
                         _logger.LogInformation("Get survey cmd");
@@ -79,12 +88,12 @@ namespace SurveyBackend
                     _logger.LogInformation(e.Endpoint.ToString());
                     _logger.LogInformation(e.Content.Text);
                 };
-            }, "testament");
+            }, "3c3a030557244b6394f897a48216e100");
             reverseWSServer.Start(stoppingToken);
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                if (_isConnected)
+                if (IsAvailable)
                 {
                     _logger.LogInformation("已连接 OneBot 实现 | OneBot 后台服务运行中：{time}", DateTimeOffset.Now);
                 }
@@ -304,43 +313,43 @@ namespace SurveyBackend
             }
         }
 
-        //    public async Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, Sisters.WudiLib.Message message)
-        //    {
-        //        if (onebotApi is null)
-        //        {
-        //            _logger.LogError("Onebot API 客户端未初始化");
-        //            return null;
-        //        }
-        //        return await onebotApi.SendGroupMessageAsync(groupId, message);
-        //    }
-        //    public async Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, string message)
-        //    {
+        public async Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, Sisters.WudiLib.Message message)
+        {
+            if (onebotApi is null)
+            {
+                _logger.LogError("Onebot API 客户端未初始化");
+                return null;
+            }
+            return await onebotApi.SendGroupMessageAsync(groupId, message);
+        }
+        public async Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, string message)
+        {
 
-        //        if (onebotApi is null)
-        //        {
-        //            _logger.LogError("Onebot API 客户端未初始化");
-        //            return null;
-        //        }
-        //        return await onebotApi.SendGroupMessageAsync(groupId, message);
-        //    }
-        //    public async Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, Sisters.WudiLib.Message message)
-        //    {
-        //        if (onebotApi is null)
-        //        {
-        //            _logger.LogError("Onebot API 客户端未初始化");
-        //            return null;
-        //        }
-        //        return await onebotApi.SendPrivateMessageAsync(qqId, message);
-        //    }
-        //    public async Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, string message)
-        //    {
-        //        if (onebotApi is null)
-        //        {
-        //            _logger.LogError("Onebot API 客户端未初始化");
-        //            return null;
-        //        }
-        //        return await onebotApi.SendPrivateMessageAsync(qqId, message);
-        //    }
+            if (onebotApi is null)
+            {
+                _logger.LogError("Onebot API 客户端未初始化");
+                return null;
+            }
+            return await onebotApi.SendGroupMessageAsync(groupId, message);
+        }
+        public async Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, Sisters.WudiLib.Message message)
+        {
+            if (onebotApi is null)
+            {
+                _logger.LogError("Onebot API 客户端未初始化");
+                return null;
+            }
+            return await onebotApi.SendPrivateMessageAsync(qqId, message);
+        }
+        public async Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, string message)
+        {
+            if (onebotApi is null)
+            {
+                _logger.LogError("Onebot API 客户端未初始化");
+                return null;
+            }
+            return await onebotApi.SendPrivateMessageAsync(qqId, message);
+        }
 
     }
 }
