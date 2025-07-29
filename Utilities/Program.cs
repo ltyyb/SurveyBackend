@@ -1,5 +1,4 @@
-﻿using System.Reflection;
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace Utilities
 {
@@ -9,7 +8,7 @@ namespace Utilities
         {
             WriteIndented = false
         };
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
             if (args.Length > 0)
             {
@@ -221,7 +220,7 @@ namespace Utilities
                 version = Console.ReadLine();
             }
 
-        jsonInput:  Console.Write("\n输入 Survey Json或直接拖入 Json 文件: ");
+        jsonInput: Console.Write("\n输入 Survey Json或直接拖入 Json 文件: ");
             var surveyJson = Console.ReadLine();
             while (string.IsNullOrWhiteSpace(surveyJson))
             {

@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using MySqlConnector;
-using Sisters.WudiLib.Posts;
+﻿using MySqlConnector;
 using System.Text.RegularExpressions;
 
 namespace SurveyBackend
@@ -27,7 +25,7 @@ namespace SurveyBackend
         /// <param name="logger"></param>
         /// <param name="connStr"></param>
         /// <returns></returns>
-        public async static Task<SurveyUser?> GetUserByQQIdAsync(string qqId, ILogger logger, string connStr)
+        public static async Task<SurveyUser?> GetUserByQQIdAsync(string qqId, ILogger logger, string connStr)
         {
             if (string.IsNullOrWhiteSpace(qqId))
             {
@@ -70,7 +68,7 @@ namespace SurveyBackend
         /// </summary>
         /// <param name="userId"></param>
         /// <returns></returns>
-        public async static Task<SurveyUser?> GetUserByIdAsync(string userId, ILogger logger, string connStr)
+        public static async Task<SurveyUser?> GetUserByIdAsync(string userId, ILogger logger, string connStr)
         {
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -128,7 +126,7 @@ namespace SurveyBackend
         /// </summary>
         /// <param name="qqId"></param>
         /// <returns></returns>
-        public async static Task<SurveyUser?> CreateUserByQQId (string qqId, string connStr)
+        public static async Task<SurveyUser?> CreateUserByQQId(string qqId, string connStr)
         {
             var userId = Guid.NewGuid().ToString("N")[..30]; // 生成一个随机的 UserId
             while (await CheckValueExistsAsync(connStr, "qqusers", "UserId", userId))
@@ -214,7 +212,7 @@ namespace SurveyBackend
         }
 
 
-        public async static Task<bool> IsUserExisted(string qqId, string connStr)
+        public static async Task<bool> IsUserExisted(string qqId, string connStr)
         {
             var surveyUser = new SurveyUser
             {

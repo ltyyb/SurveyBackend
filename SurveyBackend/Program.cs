@@ -1,6 +1,3 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 using SurveyBackend.Controllers;
 namespace SurveyBackend
 {
@@ -29,6 +26,7 @@ namespace SurveyBackend
             builder.Services.AddSingleton<IHostedService>(sp =>
                 (OnebotService)sp.GetRequiredService<IOnebotService>());
             builder.Services.AddSingleton<IHostedService, BackgroundPushingService>();
+            builder.Services.AddSingleton<IHostedService, BackgroundVerifyService>();
 
 
             var app = builder.Build();
@@ -49,20 +47,6 @@ namespace SurveyBackend
                     Console.ReadLine();
                     return;
                 }
-                if (string.IsNullOrEmpty(app.Configuration["RSA:privateKeyPath"]))
-                {
-                    mainLogger.LogError("私钥未配置。请前往 appsettings.json 配置 \"RSA:privateKeyPath\" 为你的私钥存储位置。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
-                if (!File.Exists(app.Configuration["RSA:privateKeyPath"]))
-                {
-                    mainLogger.LogError($"私钥文件 {app.Configuration["RSA:privateKeyPath"]} 不存在，请检查路径是否正确。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
                 if (string.IsNullOrEmpty(app.Configuration["Bot:mainGroupId"]))
                 {
                     mainLogger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
@@ -75,6 +59,23 @@ namespace SurveyBackend
                     if (!long.TryParse(app.Configuration["Bot:mainGroupId"], out long mainGroupId))
                     {
                         mainLogger.LogError($"主群组群号配置无效，无法将 \"{app.Configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
+                        Console.WriteLine("\n 按 Enter 退出");
+                        Console.ReadLine();
+                        return;
+                    }
+                }
+                if (string.IsNullOrEmpty(app.Configuration["Bot:adminId"]))
+                {
+                    mainLogger.LogError("管理员QQ号未配置。请前往 appsettings.json 配置 \"Bot:adminId\" 为管理员QQ号。");
+                    Console.WriteLine("\n 按 Enter 退出");
+                    Console.ReadLine();
+                    return;
+                }
+                else
+                {
+                    if (!long.TryParse(app.Configuration["Bot:adminId"], out long adminId))
+                    {
+                        mainLogger.LogError($"管理员QQ号配置无效，无法将 \"{app.Configuration["Bot:adminId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:adminId\" 为正确的管理员QQ号。");
                         Console.WriteLine("\n 按 Enter 退出");
                         Console.ReadLine();
                         return;
@@ -137,5 +138,6 @@ namespace SurveyBackend
             // 设置每分钟自动重新加载问卷
 
         }
+
     }
 }

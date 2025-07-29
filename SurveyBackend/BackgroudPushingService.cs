@@ -1,7 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
-using MySqlConnector;
+﻿using MySqlConnector;
 using Sisters.WudiLib;
-using System.Threading;
 
 namespace SurveyBackend
 {
@@ -59,16 +57,81 @@ namespace SurveyBackend
                     _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
                     return;
                 }
-
+                if (!_onebot.IsAvailable)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+                    continue;
+                }
+                TimeSpan timeDifference = DateTime.Now - _onebot.LastMessageTime;
+                if (timeDifference.TotalHours > 48)
+                {
+                    _logger.LogInformation("上次收到消息距离已达2天，将跳过本次推送。");
+                    await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
+                    continue;
+                }
+                if (DateTime.Now.Hour < 9 || DateTime.Now.Hour >= 23)
+                {
+                    _logger.LogInformation("当前时间不在推送时间段内（9:00-23:00），将跳过本次推送。");
+                    // 如果当前时间不在推送时间段内，则等待1小时后再检查
+                    await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+                    continue;
+                }
                 await ProcessUnpushedResponsesAsync(stoppingToken);
-                // 5分钟检查一次未推送的问卷响应
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                await ProcessUnverifiedResponsesAsync(stoppingToken);
+
+                // 3小时检查一次未推送的问卷响应
+                await Task.Delay(TimeSpan.FromHours(3), stoppingToken);
             }
 
             _logger.LogWarning("BackgroundPushingService Stopped.");
         }
 
+        private async Task ProcessUnverifiedResponsesAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var query = "SELECT ResponseId, ShortId FROM EntranceSurveyResponses WHERE IsReviewed = false";
+                var responses = new List<(string responseId, string shortId)>();
 
+
+                await using (var connection = new MySqlConnection(_connStr))
+                {
+                    await connection.OpenAsync(cancellationToken);
+
+                    await using var command = new MySqlCommand(query, connection);
+                    // 执行查询获取所有未完成审核的记录
+                    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        responses.Add((reader.GetString("ResponseId"), (reader.GetString("ShortId"))));
+                    }
+                }
+
+                _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
+
+                // 针对每一个未推送的问卷响应，尝试调用推送逻辑
+                foreach (var (responseId, shortId) in responses)
+                {
+                    var pushResult = await TryPushSurveyResponseAsync(responseId, shortId, cancellationToken);
+                    if (pushResult)
+                    {
+                        _logger.LogInformation("问卷响应 {ResponseId} 推送成功。", responseId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("问卷响应 {ResponseId} 推送失败，将在下次重试。", responseId);
+                    }
+                }
+            }
+            catch (MySqlException sqlEx)
+            {
+                _logger.LogError(sqlEx, "数据库操作失败，可能是连接字符串错误或数据库不可用。请检查连接字符串和数据库状态。");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理未推送问卷响应时发生异常。");
+            }
+        }
         private async Task ProcessUnpushedResponsesAsync(CancellationToken cancellationToken)
         {
             try
@@ -208,5 +271,6 @@ namespace SurveyBackend
                 return false;
             }
         }
+
     }
 }
