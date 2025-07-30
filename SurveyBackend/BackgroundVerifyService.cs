@@ -94,8 +94,8 @@ namespace SurveyBackend
         {
             try
             {
-                var query = "SELECT ResponseId, UserId FROM EntranceSurveyResponses WHERE IsReviewed = false";
-                var responses = new List<(string responseId, string userId)>();
+                var query = "SELECT ResponseId, UserId, QQId FROM EntranceSurveyResponses WHERE IsReviewed = false";
+                var responses = new List<(string responseId, string userId, string qqId)>();
 
 
                 await using (var connection = new MySqlConnection(_connStr))
@@ -107,13 +107,13 @@ namespace SurveyBackend
                     await using var reader = await command.ExecuteReaderAsync(cancellationToken);
                     while (await reader.ReadAsync(cancellationToken))
                     {
-                        responses.Add((reader.GetString("ResponseId"), reader.GetString("UserId")));
+                        responses.Add((reader.GetString("ResponseId"), reader.GetString("UserId"), reader.GetString("QQId")));
                     }
                 }
 
                 _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
                 // 针对每一个未推送的问卷响应，尝试验证
-                foreach (var (responseId, userId) in responses)
+                foreach (var (responseId, userId, qqId) in responses)
                 {
                     await using var voteConn = new MySqlConnection(_connStr);
                     await voteConn.OpenAsync(cancellationToken);
@@ -163,9 +163,9 @@ namespace SurveyBackend
                                 }
                                 else
                                 {
-                                    _logger.LogInformation("用户 {userId} 已标记为已验证。", userId);
+                                    _logger.LogInformation("用户 {userId} ({qqid}) 已标记为已验证。", userId, qqId);
                                     // 推送审核通过的消息
-                                    var atMessage = SendingMessage.At(long.Parse(userId));
+                                    var atMessage = SendingMessage.At(long.Parse(qqId));
                                     var message = $"""
 
                                         ヾ(•ω•`)o 您的问卷回答已通过审核~
@@ -196,7 +196,7 @@ namespace SurveyBackend
                                 responseClearList.Add((responseId, DateTime.Now.AddHours(24))); // 添加到清除列表
 
                                 // 推送审核未通过的消息
-                                var atMessage = SendingMessage.At(long.Parse(userId));
+                                var atMessage = SendingMessage.At(long.Parse(qqId));
                                 var message = $"""
                                     
                                     w(ﾟДﾟ)w 您的问卷回答未通过审核欸
