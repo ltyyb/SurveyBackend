@@ -331,8 +331,8 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                long verifyGroupId;
                 long mainGroupId;
+                long verifyGroupId;
                 if (string.IsNullOrEmpty(_configuration["Bot:verifyGroupId"]))
                 {
                     _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
@@ -365,7 +365,7 @@ namespace SurveyBackend.Controllers
                     _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
                     return false;
                 }
-                const string query = "SELECT IsPushed FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                const string query = "SELECT IsPushed, QQId FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
 
                 await using var connection = new MySqlConnection(connStr);
                 await connection.OpenAsync();
@@ -373,20 +373,34 @@ namespace SurveyBackend.Controllers
                 await using var command = new MySqlCommand(query, connection);
                 command.Parameters.AddWithValue("@responseId", responseId);
 
-                var result = await command.ExecuteScalarAsync();
+                var reader = await command.ExecuteReaderAsync();
                 bool isPushed;
-                if (result == null || result == DBNull.Value)
+                string qqId;
+                if (await reader.ReadAsync())
                 {
-                    isPushed = false;
+                    isPushed = reader.GetBoolean("IsPushed");
+                    qqId = reader.GetString("QQId");
                 }
                 else
                 {
-                    isPushed = Convert.ToBoolean(result);
+                    _logger.LogError($"No survey response found with ResponseId: {responseId}");
+                    return false;
                 }
-
 
                 if (!isPushed)
                 {
+                    var atMsg = SendingMessage.At(long.Parse(qqId));
+                    var msg = new SendingMessage($"""
+
+                        已收到您的问卷提交 (≧∇≦)ﾉ
+                        请耐心等待众审结果哦 ♪(^∇^*)
+
+                        期间请留意审核群消息，如审核完成将发送通知（*＾-＾*）
+                        """);
+                    var feedbackMsg = await _onebot.SendGroupMessageAsync(verifyGroupId, atMsg + msg);
+                    _logger.LogInformation($"Feedback message sent to verify group {verifyGroupId} with messageId: {feedbackMsg?.MessageId}");
+
+
                     var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
                     var atAll = SendingMessage.AtAll();
                     var message = new SendingMessage($"""
@@ -406,6 +420,7 @@ namespace SurveyBackend.Controllers
                             /survey vote {shortId} a - 同意
                             /survey vote {shortId} d - 拒绝
                         你可以随时更新您的投票结果。
+                        本问卷提交者: {qqId}
                         """);
                     var pushResult = await _onebot.SendGroupMessageAsync(mainGroupId, atAll + message);
                     if (pushResult?.MessageId > 0)
@@ -432,6 +447,8 @@ namespace SurveyBackend.Controllers
                         _logger.LogError($"Failed to push survey response {responseId} to main group {mainGroupId} (Cannot send, messageId = {pushResult?.MessageId}).");
                         return false;
                     }
+                   
+
                 }
                 else
                 {
