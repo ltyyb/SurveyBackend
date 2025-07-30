@@ -4,6 +4,7 @@ using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
 using Sisters.WudiLib.WebSocket.Reverse;
 using System.Text;
+using System.Text.RegularExpressions;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
@@ -442,6 +443,16 @@ namespace SurveyBackend
             if (surveyId == "entr")
             {
                 var qqId = e.UserId;
+                if (await IsVerifiedAsync(qqId.ToString()))
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, $"您已通过审核。您可直接加入群组 {_configuration["mainGroupId"]}。");
+                    return false;
+                }
+                if (await IsUserSubmitted(qqId.ToString()))
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, $"数据库中已有您的提交信息。\n请耐心等待审核，如有疑问请联系管理员。");
+                    return false;
+                }
                 await SendMessage(e.Endpoint, "正在注册用户...");
 
                 SurveyUser? surveyUser;
@@ -474,6 +485,8 @@ namespace SurveyBackend
                         return false;
                     }
                 }
+
+
 
 
                 var link = $"https://ltyyb.auntstudio.com/survey/entr?userId={surveyUser.UserId}";
@@ -600,7 +613,7 @@ namespace SurveyBackend
         {
             await using var conn = new MySqlConnection(connStr);
             await conn.OpenAsync();
-            const string fullInsertSql = "INSERT INTO response_votes (responseId, userId, vote) VALUES (@responseId, @userId, 'agree') ON DUPLICATE KEY UPDATE vote = VALUES(vote), voteTime = CURRENT_TIMESTAMP";
+            const string fullInsertSql = "INSERT INTO response_votes (responseId, userId, vote) VALUES (@responseId, @userId, @vote) ON DUPLICATE KEY UPDATE vote = VALUES(vote), voteTime = CURRENT_TIMESTAMP";
             await using var cmd = new MySqlCommand(fullInsertSql, conn);
             cmd.Parameters.AddWithValue("@responseId", responseId);
             cmd.Parameters.AddWithValue("@userId", userId);
@@ -657,6 +670,25 @@ namespace SurveyBackend
                 using var cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@qqId", qqId);
                 var result = cmd.ExecuteScalar() ?? false;
+                _logger.LogInformation(qqId + " IsVerified: " + result);
+                return Convert.ToBoolean(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查用户是否已验证时发生错误");
+                return false;
+            }
+        }
+        private async Task<bool> IsVerifiedAsync(string qqId)
+        {
+            try
+            {
+                using var conn = new MySqlConnection(connStr);
+                await conn.OpenAsync();
+                const string query = "SELECT IsVerified FROM qqusers WHERE QQId = @qqId";
+                using var cmd = new MySqlCommand(query, conn);
+                cmd.Parameters.AddWithValue("@qqId", qqId);
+                var result = await cmd.ExecuteScalarAsync() ?? false;
                 _logger.LogInformation(qqId + " IsVerified: " + result);
                 return Convert.ToBoolean(result);
             }
@@ -845,6 +877,40 @@ namespace SurveyBackend
                 _logger.LogError(ex, "尝试添加用户 {qqId} 时发生错误", userQQId.ToString());
                 return false;
             }
+        }
+
+        private async Task<bool> IsUserSubmitted(string qqId)
+        {
+            try
+            {
+                return await CheckValueExistsAsync(connStr!, "EntranceSurveyResponses", "QQId", qqId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查用户是否已提交时发生错误");
+                return false;
+            }
+        }
+        private static async Task<bool> CheckValueExistsAsync(string connectionString, string tableName, string columnName, object value)
+        {
+            Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
+            // 防止 SQL 注入：只允许合法字符
+            if (!SafeNameRegex.IsMatch(tableName) || !SafeNameRegex.IsMatch(columnName))
+            {
+                throw new ArgumentException("表名或列名包含非法字符。只允许字母、数字和下划线。");
+            }
+
+            string query = $"SELECT EXISTS(SELECT 1 FROM `{tableName}` WHERE `{columnName}` = @value LIMIT 1);";
+
+            await using var connection = new MySqlConnection(connectionString);
+            await connection.OpenAsync();
+
+            await using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@value", value);
+
+            object result = await command.ExecuteScalarAsync() ?? false;
+
+            return Convert.ToBoolean(result);
         }
 
         #region IOnebotService
