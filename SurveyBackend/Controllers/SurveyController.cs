@@ -423,31 +423,23 @@ namespace SurveyBackend.Controllers
                         本问卷提交者: {qqId}
                         """);
                     var pushResult = await _onebot.SendGroupMessageAsync(mainGroupId, atAll + message);
-                    if (pushResult?.MessageId > 0)
+                    _logger.LogInformation($"Survey response {responseId} pushed to main group {mainGroupId} successfully.");
+                    // 更新数据库标记为已推送
+                    const string updateSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId";
+                    await using var updateCmd = new MySqlCommand(updateSql, connection);
+                    updateCmd.Parameters.AddWithValue("@responseId", responseId);
+                    var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
+                    if (rowsAffected > 0)
                     {
-                        _logger.LogInformation($"Survey response {responseId} pushed to main group {mainGroupId} successfully.");
-                        // 更新数据库标记为已推送
-                        const string updateSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId";
-                        await using var updateCmd = new MySqlCommand(updateSql, connection);
-                        updateCmd.Parameters.AddWithValue("@responseId", responseId);
-                        var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
-                        if (rowsAffected > 0)
-                        {
-                            _logger.LogInformation($"Response voting data updated successfully for responseId: {responseId}");
-                            return true;
-                        }
-                        else
-                        {
-                            _logger.LogWarning($"Failed to update response voting data for responseId: {responseId}");
-                            return false;
-                        }
+                        _logger.LogInformation($"Response voting data updated successfully for responseId: {responseId}");
+                        return true;
                     }
                     else
                     {
-                        _logger.LogError($"Failed to push survey response {responseId} to main group {mainGroupId} (Cannot send, messageId = {pushResult?.MessageId}).");
+                        _logger.LogWarning($"Failed to update response voting data for responseId: {responseId}");
                         return false;
                     }
-                   
+
 
                 }
                 else

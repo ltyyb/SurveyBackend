@@ -228,37 +228,9 @@ namespace SurveyBackend
 
                 // 调用消息发送接口进行推送
                 var pushResult = await _onebot.SendGroupMessageAsync(_mainGroupId, atAll + message);
-                if (pushResult?.MessageId > 0)
-                {
-                    _logger.LogInformation("问卷响应 {ResponseId} ({shortId}) 已发送到群 {MainGroupId}，消息ID={MessageId}", responseId, shortId, _mainGroupId, pushResult.MessageId);
+                _logger.LogInformation("问卷响应 {ResponseId} ({shortId}) 已发送到群 {MainGroupId}，消息ID={MessageId}", responseId, shortId, _mainGroupId, pushResult?.MessageId);
 
-                    return true;
-                }
-                else
-                {
-                    _logger.LogError("发送问卷响应 {ResponseId} 到群 {MainGroupId} 时失败 (MessageId = {MessageId})。", responseId, _mainGroupId, pushResult?.MessageId);
-                    // 修改数据库标记
-                    const string ReFalseLockSql = "UPDATE EntranceSurveyResponses SET IsPushed = false WHERE ResponseId = @responseId AND IsPushed = true";
-                    await using (var connection = new MySqlConnection(_connStr))
-                    {
-                        await connection.OpenAsync(cancellationToken);
-                        await using (var cmd = new MySqlCommand(ReFalseLockSql, connection))
-                        {
-                            cmd.Parameters.AddWithValue("@responseId", responseId);
-                            var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                            if (affected == 0)
-                            {
-                                // 没抢到锁
-                                _logger.LogWarning("{responseId} 推送失败，但无法将 IsPushed 值修改回 false，请务必手动处理此问题！！", responseId);
-                            }
-                            else
-                            {
-                                _logger.LogInformation("问卷响应 {ResponseId} 推送失败，已将 IsPushed 标记修改回 false。", responseId);
-                            }
-                        }
-                    }
-                    return false;
-                }
+                return true;
             }
             catch (MySqlException sqlEx)
             {
