@@ -64,6 +64,7 @@ namespace SurveyBackend
             reverseWSServer.SetListenerAuthenticationAndConfiguration((listener, selfId) =>
             {
                 onebotApi = listener.ApiClient;
+                
                 listener.SocketDisconnected += () =>
                 {
                     _logger.LogWarning("WebSocket连接已断开");
@@ -445,7 +446,7 @@ namespace SurveyBackend
                 var qqId = e.UserId;
                 if (await IsVerifiedAsync(qqId.ToString()))
                 {
-                    await SendMessageWithAt(e.Endpoint, e.UserId, $"您已通过审核。您可直接加入群组 {_configuration["mainGroupId"]}。");
+                    await SendMessageWithAt(e.Endpoint, e.UserId, $"您已通过审核。您可直接加入群组 {_configuration["Bot:mainGroupId"]}。");
                     return false;
                 }
                 if (await IsUserSubmitted(qqId.ToString()))
