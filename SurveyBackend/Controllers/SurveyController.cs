@@ -405,6 +405,7 @@ namespace SurveyBackend.Controllers
                     var atAll = SendingMessage.AtAll();
                     var message = new SendingMessage($"""
 
+                        [来自新问卷同步器]
                         有新的问卷填写提交 ヾ(•ω•`)o
                         请各位群友抽空审核 ( •̀ ω •́ )✧
                         -
@@ -426,7 +427,9 @@ namespace SurveyBackend.Controllers
                     _logger.LogInformation($"Survey response {responseId} pushed to main group {mainGroupId} successfully.");
                     // 更新数据库标记为已推送
                     const string updateSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId";
-                    await using var updateCmd = new MySqlCommand(updateSql, connection);
+                    await using var updateConnection = new MySqlConnection(connStr);
+                    await updateConnection.OpenAsync();
+                    await using var updateCmd = new MySqlCommand(updateSql, updateConnection);
                     updateCmd.Parameters.AddWithValue("@responseId", responseId);
                     var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
                     if (rowsAffected > 0)
