@@ -85,13 +85,11 @@ namespace SurveyBackend
                 listener.MessageEvent += async (api, e) =>
                 {
                     LastMessageTime = DateTime.Now;
-                    if (e.Content.Text.StartsWith("/survey"))
+                    if (e.Content.Text.Trim().ToLowerInvariant().StartsWith("survey"))
                     {
                         _logger.LogInformation("Get survey cmd");
                         await SurveyCmdProcesser(e, stoppingToken);
                     }
-                    _logger.LogInformation(e.Endpoint.ToString());
-                    _logger.LogInformation(e.Content.Text);
                 };
                 listener.GroupRequestEvent += (api, e) =>
                 {
