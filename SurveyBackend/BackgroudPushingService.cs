@@ -109,10 +109,10 @@ namespace SurveyBackend
 
                 _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
 
-                // 针对每一个未推送的问卷响应，尝试调用推送逻辑
+                // 针对每一个未审核的问卷响应，尝试调用推送逻辑
                 foreach (var (responseId, shortId) in responses)
                 {
-                    var pushResult = await TryPushSurveyResponseAsync(responseId, shortId, cancellationToken);
+                    var pushResult = await TryPushSurveyResponseAsync(responseId, shortId, false, cancellationToken);
                     if (pushResult)
                     {
                         _logger.LogInformation("问卷响应 {ResponseId} 推送成功。", responseId);
@@ -158,7 +158,7 @@ namespace SurveyBackend
                 // 针对每一个未推送的问卷响应，尝试调用推送逻辑
                 foreach (var (responseId, shortId) in responses)
                 {
-                    var pushResult = await TryPushSurveyResponseAsync(responseId, shortId, cancellationToken);
+                    var pushResult = await TryPushSurveyResponseAsync(responseId, shortId, true, cancellationToken);
                     if (pushResult)
                     {
                         _logger.LogInformation("问卷响应 {ResponseId} 推送成功。", responseId);
@@ -182,33 +182,38 @@ namespace SurveyBackend
         /// <summary>
         /// 尝试对指定的问卷响应进行推送，如果推送成功则更新数据库中的标记。
         /// </summary>
-        private async Task<bool> TryPushSurveyResponseAsync(string responseId, string shortId, CancellationToken cancellationToken)
+        private async Task<bool> TryPushSurveyResponseAsync(string responseId, string shortId, bool isUnpushed, CancellationToken cancellationToken)
         {
             try
             {
-                const string lockSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId AND IsPushed = false";
-                await using (var connection = new MySqlConnection(_connStr))
+                string source = isUnpushed ? "[来自未推送检查服务]" : "[来自未审核检查服务]";
+                if (isUnpushed)
                 {
-                    await connection.OpenAsync(cancellationToken);
-                    await using (var cmd = new MySqlCommand(lockSql, connection))
+                    const string lockSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId AND IsPushed = false";
+                    await using (var connection = new MySqlConnection(_connStr))
                     {
-                        cmd.Parameters.AddWithValue("@responseId", responseId);
-                        var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
-                        if (affected == 0)
+                        await connection.OpenAsync(cancellationToken);
+                        await using (var cmd = new MySqlCommand(lockSql, connection))
                         {
-                            // 说明已经被其他任务处理了
-                            _logger.LogInformation("跳过重复推送：ResponseId {ResponseId} 已经在其他地方处理。", responseId);
-                            return true;
+                            cmd.Parameters.AddWithValue("@responseId", responseId);
+                            var affected = await cmd.ExecuteNonQueryAsync(cancellationToken);
+                            if (affected == 0)
+                            {
+                                // 说明已经被其他任务处理了
+                                _logger.LogInformation("跳过重复推送：ResponseId {ResponseId} 已经在其他地方处理。", responseId);
+                                return true;
+                            }
                         }
                     }
                 }
-                // 如果抢锁成功，再发送消息
+
 
                 // 构造消息内容
                 var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
                 var atAll = SendingMessage.AtAll();
                 var message = new SendingMessage($"""
 
+                        {source}
                         有新的问卷填写提交 ヾ(•ω•`)o
                         请各位群友抽空审核 ( •̀ ω •́ )✧
                         -
@@ -228,7 +233,7 @@ namespace SurveyBackend
 
                 // 调用消息发送接口进行推送
                 var pushResult = await _onebot.SendGroupMessageAsync(_mainGroupId, atAll + message);
-                _logger.LogInformation("问卷响应 {ResponseId} ({shortId}) 已发送到群 {MainGroupId}，消息ID={MessageId}", responseId, shortId, _mainGroupId, pushResult?.MessageId);
+                _logger.LogInformation("{source} 问卷响应 {ResponseId} ({shortId}) 已发送到群 {MainGroupId}，消息ID={MessageId}", source, responseId, shortId, _mainGroupId, pushResult?.MessageId);
 
                 return true;
             }
