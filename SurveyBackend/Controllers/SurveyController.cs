@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using MySqlConnector;
 using Sisters.WudiLib;
+using System.Data;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -15,13 +16,15 @@ namespace SurveyBackend.Controllers
         private readonly IConfiguration _configuration;
         private readonly ILogger<SurveyController> _logger;
         private readonly IOnebotService _onebot;
+        private readonly ILoggerFactory _loggerFactory;
         private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
 
-        public SurveyController(ILogger<SurveyController> logger, IConfiguration configuration, IOnebotService onebotService)
+        public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory , IConfiguration configuration, IOnebotService onebotService)
         {
             _configuration = configuration;
             _logger = logger;
             _onebot = onebotService;
+            _loggerFactory = loggerFactory;
         }
 
 
@@ -283,6 +286,7 @@ namespace SurveyBackend.Controllers
                 if (saved)
                 {
                     _logger.LogInformation($"Survey submitted to the database successfully for UserId: {user.UserId} ({user.QQId}), ResponseId is {responseId} ({shortId}).");
+                    await GenerateInsight(responseId);
                     await PushResponse(responseId, shortId);
                     return (true, responseId);
                 }
@@ -327,6 +331,73 @@ namespace SurveyBackend.Controllers
             return Convert.ToBoolean(result);
         }
 
+        private async Task<bool> GenerateInsight(string responseId)
+        {
+            try
+            {
+                var response = await GetResponseByResponseId(responseId);
+                if (response is null)
+                {
+                    _logger.LogError($"No survey response found with ResponseId: {responseId}");
+                    return false;
+                }
+                var surveyPkg = SurveyPkgInstance.Instance;
+                if (surveyPkg is null)
+                {
+                    _logger.LogError("Server-side Error: No active survey found.");
+                    return false;
+                }
+                var surveyJson = surveyPkg.GetSurvey(response.SurveyVersion).GetSpecificSurveyJsonByQQId(response.QQId);
+                if (surveyJson is null)
+                {
+                    _logger.LogError($"Cannot get survey with version {response.SurveyVersion}");
+                    return false;
+                }
+                var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+                if (!llmTool.IsAvailable)
+                {
+                    _logger.LogWarning("LLM Tool is not available, skipping insight generation.");
+                    return false;
+                }
+                var prompt = llmTool.ParseSurveyResponseToNL(surveyJson, response.SurveyAnswer);
+                if (string.IsNullOrWhiteSpace(prompt))
+                {
+                    _logger.LogError($"Failed to parse survey response to natural language for responseId: {responseId}");
+                    return false;
+                }
+                var insight = await llmTool.GetInsight(prompt);
+                _logger.LogInformation($"Insight generated for responseId: {responseId}");
+                // 更新数据库
+                var connStr = _configuration.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                    return false;
+                }
+                const string updateSql = "UPDATE EntranceSurveyResponses SET LLMInsight = @insight WHERE ResponseId = @responseId";
+                await using var updateConnection = new MySqlConnection(connStr);
+                await updateConnection.OpenAsync();
+                await using var updateCmd = new MySqlCommand(updateSql, updateConnection);
+                updateCmd.Parameters.AddWithValue("@insight", insight);
+                updateCmd.Parameters.AddWithValue("@responseId", responseId);
+                var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
+                if (rowsAffected > 0)
+                {
+                    _logger.LogInformation($"Insight generated and updated successfully for responseId: {responseId}");
+                    return true;
+                }
+                else
+                {
+                    _logger.LogWarning($"Failed to update insight for responseId: {responseId}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while generating insight for responseId: {responseId}", responseId);
+                return false;
+            }
+        }
         private async Task<bool> PushResponse(string responseId, string shortId)
         {
             try
@@ -365,7 +436,7 @@ namespace SurveyBackend.Controllers
                     _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
                     return false;
                 }
-                const string query = "SELECT IsPushed, QQId FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                const string query = "SELECT IsPushed, QQId, LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
 
                 await using var connection = new MySqlConnection(connStr);
                 await connection.OpenAsync();
@@ -376,10 +447,12 @@ namespace SurveyBackend.Controllers
                 var reader = await command.ExecuteReaderAsync();
                 bool isPushed;
                 string qqId;
+                string insight;
                 if (await reader.ReadAsync())
                 {
                     isPushed = reader.GetBoolean("IsPushed");
                     qqId = reader.GetString("QQId");
+                    insight = reader.IsDBNull("LLMInsight") ? "尚无 AI 见解, 可能目前不可用。" : reader.GetString("LLMInsight");
                 }
                 else
                 {
@@ -424,6 +497,14 @@ namespace SurveyBackend.Controllers
                         本问卷提交者: {qqId}
                         """);
                     var pushResult = await _onebot.SendGroupMessageAsync(mainGroupId, atAll + message);
+                    // 发送 AI 见解
+                    var insightMsg = new SendingMessage($"""
+                        {shortId} 的 AI 见解：
+                        以下内容由 AI 生成，仅供参考：
+                        ============================
+                        {insight}
+                        """);
+                    await _onebot.SendGroupMessageAsync(mainGroupId, insightMsg);
                     _logger.LogInformation($"Survey response {responseId} pushed to main group {mainGroupId} successfully.");
                     // 更新数据库标记为已推送
                     const string updateSql = "UPDATE EntranceSurveyResponses SET IsPushed = true WHERE ResponseId = @responseId";

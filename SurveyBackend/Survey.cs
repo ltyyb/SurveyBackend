@@ -15,7 +15,7 @@
             Version = version;
             VersionDescription = versionDescription;
             SurveyJson = surveyJson;
-            this.ReleaseDate = releaseDate;
+            ReleaseDate = releaseDate;
         }
 
         /// <summary>

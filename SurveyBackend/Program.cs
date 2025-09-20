@@ -98,6 +98,21 @@ namespace SurveyBackend
                         return;
                     }
                 }
+                if (string.IsNullOrWhiteSpace(app.Configuration["Bot:accessToken"]))
+                {
+                    mainLogger.LogError("OneBot Access Token 未配置。请前往 appsettings.json 添加 Bot:accessToken 配置项。");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(app.Configuration["Bot:wsPort"]))
+                {
+                    mainLogger.LogError("OneBot WebSocket 端口未配置。请前往 appsettings.json 添加 Bot:wsPort 配置项。");
+                    return;
+                }
+                if (!int.TryParse(app.Configuration["Bot:wsPort"], out int wsPort))
+                {
+                    mainLogger.LogError("OneBot WebSocket 端口配置错误, 无法转型。请前往 appsettings.json 检查 Bot:wsPort 配置项。");
+                    return;
+                }
                 if (string.IsNullOrEmpty(app.Configuration["Survey:packedSurveyPath"]))
                 {
                     mainLogger.LogError("问卷题目内容未配置。请前往 appsettings.json 配置 \"Survey:packedSurveyPath\" 为已打包问卷位置。");

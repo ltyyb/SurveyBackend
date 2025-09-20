@@ -8,10 +8,28 @@ namespace Utilities
         {
             WriteIndented = false
         };
-        private static void Main(string[] args)
+        private async static Task Main(string[] args)
         {
             if (args.Length > 0)
             {
+                if (args[0] == "llmtest")
+                {
+                    Console.WriteLine("=== LLM 问卷审阅测试工具 ===");
+                    LLMTools lLMTools = new LLMTools();
+                    Console.WriteLine("System:\n" + LLMTools.SysPrompt);
+                    Console.WriteLine("\n拖入原始问卷: ");
+                    string surveyPath = Console.ReadLine();
+                    Console.WriteLine("\n拖入用户回答: ");
+                    string responsePath = Console.ReadLine();
+                    string surveyJson = File.ReadAllText(surveyPath);
+                    string responseJson = File.ReadAllText(responsePath);
+                    var surveyPrompt = await lLMTools.ParseSurveyResponseToNL(surveyJson, responseJson);
+                    Console.WriteLine("\n用户问卷内容:\n" + surveyPrompt);
+                    Console.WriteLine("回车发送给LLM");
+                    Console.ReadLine();
+                    var result = await lLMTools.GetInsight(surveyPrompt);
+                    Console.WriteLine("\nLLM 回复:\n" + result);
+                }
                 if (args[0] == "packSurvey")
                 {
                     Console.WriteLine("=== Survey 打包交互工具 ===");

@@ -3,15 +3,18 @@ using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
 using Sisters.WudiLib.WebSocket.Reverse;
+using System.Data;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Reflection;
+using static SurveyBackend.Controllers.SurveyController;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
 {
     public class OnebotService : BackgroundService, IOnebotService
     {
-        private readonly string _helpText = """
+        private readonly string _helpText = $"""
                          Survey Service 帮助
             本系统提供问卷调查辅助服务。仅可在六同音游部相关群中使用。
             
@@ -19,10 +22,11 @@ namespace SurveyBackend
             /survey get <问卷标识符> - 注册用户并获取问卷链接
             /survey vote <Response Id> [a|d] - 投票问卷
             /survey info <Response Id> - 查看问卷回应信息
+            /survey insight <Response Id> - 查看问卷 AI 见解
             
             /survey get <问卷标识符> 指令可以简写为 /survey <问卷标识符>。
             /survey vote 指令后的 Reponse Id 可以简写，具体请参照新问卷提交推送时提示的指令。后跟的 a 为同意，d 为拒绝。
-            /survey info 指令后的 Reponse Id 可以简写，具体请参照新问卷提交推送时提示的指令。
+            其余所有指令后的 Reponse Id 参数亦可以简写，具体请参照新问卷提交推送时提示的指令。
             
             指令示例:
               /survey entr | 获取入群问卷链接
@@ -36,17 +40,21 @@ namespace SurveyBackend
             Using ASP.NET Core & Sisters.WudiLib
             -
             Developed by Aunt_nuozhen with ❤
+            后端版本: {Assembly.GetExecutingAssembly()
+            .GetName().Version?.ToString() ?? "未知"}
             """;
         private readonly ILogger<OnebotService> _logger;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
         private string? connStr;
         private HttpApiClient? onebotApi = null;
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
-        public OnebotService(ILogger<OnebotService> logger, IConfiguration configuration)
+        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration)
         {
             _logger = logger;
+            _loggerFactory = loggerFactory;
             _configuration = configuration;
         }
 
@@ -60,7 +68,23 @@ namespace SurveyBackend
                 _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
             }
 
-            var reverseWSServer = new ReverseWebSocketServer(21568);
+            string accessToken = _configuration["Bot:accessToken"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                _logger.LogError("OneBot Access Token 未配置。请前往 appsettings.json 添加 Bot:accessToken 配置项。");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_configuration["Bot:wsPort"]))
+            {
+                _logger.LogError("OneBot WebSocket 端口未配置。请前往 appsettings.json 添加 Bot:wsPort 配置项。");
+                return;
+            }
+            if (!int.TryParse(_configuration["Bot:wsPort"], out int wsPort))
+            {
+                _logger.LogError("OneBot WebSocket 端口配置错误, 无法转型。请前往 appsettings.json 检查 Bot:wsPort 配置项。");
+                return;
+            }
+            var reverseWSServer = new ReverseWebSocketServer(wsPort);
             reverseWSServer.SetListenerAuthenticationAndConfiguration((listener, selfId) =>
             {
                 onebotApi = listener.ApiClient;
@@ -106,7 +130,7 @@ namespace SurveyBackend
                         return "请先在审核群完成审核。";
                     }
                 };
-            }, "3c3a030557244b6394f897a48216e100");
+            }, accessToken);
             reverseWSServer.Start(stoppingToken);
 
             while (!stoppingToken.IsCancellationRequested)
@@ -359,6 +383,84 @@ namespace SurveyBackend
                             else
                             {
                                 await SendMessageWithAt(e.Endpoint, e.UserId, $"无法将用户 {qqId} 添加到数据库中。");
+                            }
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "insight")
+                    {
+                        if (e is GroupMessage groupMsg)
+                        {
+                            if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
+                                return;
+                            }
+                            var responseId = await GetFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+
+                            await using var conn = new MySqlConnection(connStr);
+                            await conn.OpenAsync(cancellationToken);
+                            const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                            await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                            infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                            await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                // 读取信息
+                                var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
+                                var msg = $"""
+                                {responseId}
+                                AI 见解
+                                以下内容由 AI 生成, 仅供参考:
+                                =================================
+                                {insight}
+                                """;
+                                await SendMessageWithAt(e.Endpoint, e.UserId, msg);
+                            }
+                        }
+                        
+                    }
+                    else if (args[1] == "re-insight")
+                    {
+                        if (e.UserId.ToString() == _configuration["Bot:adminId"])
+                        {
+                            var responseId = await GetFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+                            await SendMessageWithAt(e.Endpoint, e.UserId, $"即将重新生成 AI 见解并覆盖先前结果: {responseId}");
+                            await ReGenerateInsight(responseId, e);
+                            await SendMessageWithAt(e.Endpoint, e.UserId, $"已经重新生成 AI 见解并覆盖先前结果: {responseId}");
+
+                            await using var conn = new MySqlConnection(connStr);
+                            await conn.OpenAsync(cancellationToken);
+                            const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                            await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                            infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                            await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                // 读取信息
+                                var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
+                                var msg = $"""
+                                {responseId}
+                                AI 见解
+                                以下内容由 AI 生成, 仅供参考:
+                                =================================
+                                {insight}
+                                """;
+                                await SendMessageWithAt(e.Endpoint, e.UserId, msg);
                             }
                         }
                         else
@@ -635,6 +737,8 @@ namespace SurveyBackend
 
         private async Task<string?> GetFullResponseIdAsync(string shortId)
         {
+            if (shortId.Length > 10) return shortId; 
+
             string fullId;
 
             await using var conn = new MySqlConnection(connStr);
@@ -910,6 +1014,125 @@ namespace SurveyBackend
             object result = await command.ExecuteScalarAsync() ?? false;
 
             return Convert.ToBoolean(result);
+        }
+        private async Task<SurveyResponse?> GetResponseByResponseId(string responseId)
+        {
+            try
+            {
+                var connStr = _configuration.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                    return null;
+                }
+                await using var conn = new MySqlConnection(connStr);
+                await conn.OpenAsync();
+
+                const string sql = "SELECT SurveyAnswer, SurveyVersion, UserId, QQId FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                await using var cmd = new MySqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@responseId", responseId);
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+
+                if (await reader.ReadAsync())  // 只读取第一行
+                {
+                    string response = reader.GetString("SurveyAnswer");
+                    string version = reader.GetString("SurveyVersion");
+                    string userId = reader.GetString("userId");
+                    string qqId = reader.GetString("QQId");
+                    var responseData = new SurveyResponse
+                    {
+                        UserId = userId,
+                        SurveyVersion = version,
+                        QQId = qqId,
+                        SurveyAnswer = response
+                    };
+                    return responseData;
+                }
+                else
+                {
+                    _logger.LogWarning("Could not find survey response with id {id}", responseId);
+                    return null;
+                }
+            }
+            catch (MySqlException ex)
+            {
+                _logger.LogError(ex, "Database error while reading survey response with id {id}.", responseId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while reading survey response with id {id}.", responseId);
+                return null;
+            }
+        }
+        private async Task<bool> ReGenerateInsight(string responseId, Message e)
+        {
+            try
+            {
+                var response = await GetResponseByResponseId(responseId);
+                if (response is null)
+                {
+                    _logger.LogError($"No survey response found with ResponseId: {responseId}");
+                    return false;
+                }
+                var surveyPkg = SurveyPkgInstance.Instance;
+                if (surveyPkg is null)
+                {
+                    _logger.LogError("Server-side Error: No active survey found.");
+                    return false;
+                }
+                var surveyJson = surveyPkg.GetSurvey(response.SurveyVersion).GetSpecificSurveyJsonByQQId(response.QQId);
+                if (surveyJson is null)
+                {
+                    _logger.LogError($"Cannot get survey with version {response.SurveyVersion}");
+                    return false;
+                }
+                var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+                if (!llmTool.IsAvailable)
+                {
+                    _logger.LogError("AI Insight unavailable");
+                    await SendMessageWithAt(e.Endpoint, e.UserId, "AI 见解功能目前不可用，请检查日志。");
+                    return false;
+                }
+                var prompt = llmTool.ParseSurveyResponseToNL(surveyJson, response.SurveyAnswer);
+                if (string.IsNullOrWhiteSpace(prompt))
+                {
+                    _logger.LogError($"Failed to parse survey response to natural language for responseId: {responseId}");
+                    return false;
+                }
+                var insight = await llmTool.GetInsight(prompt);
+                _logger.LogInformation($"Insight generated for responseId: {responseId}");
+                // 更新数据库
+                var connStr = _configuration.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                    return false;
+                }
+                const string updateSql = "UPDATE EntranceSurveyResponses SET LLMInsight = @insight WHERE ResponseId = @responseId";
+                await using var updateConnection = new MySqlConnection(connStr);
+                await updateConnection.OpenAsync();
+                await using var updateCmd = new MySqlCommand(updateSql, updateConnection);
+                updateCmd.Parameters.AddWithValue("@insight", insight);
+                updateCmd.Parameters.AddWithValue("@responseId", responseId);
+                var rowsAffected = await updateCmd.ExecuteNonQueryAsync();
+                if (rowsAffected > 0)
+                {
+                    _logger.LogInformation($"Insight generated and updated successfully for responseId: {responseId}");
+                    return true;
+                }
+                else
+                {
+                    _logger.LogWarning($"Failed to update insight for responseId: {responseId}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while generating insight for responseId: {responseId}", responseId);
+                return false;
+            }
         }
 
         #region IOnebotService
