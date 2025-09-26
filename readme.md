@@ -79,7 +79,7 @@ CREATE TABLE `response_votes` (
 
 你需要修改 `appsettings.json` 以配置数据库连接字符串等其它杂项配置。
 
-以下是配置文件详解，请在配置完毕后删除所有注释或参考仓库内的 `appsettings.json` 示例文件。
+以下是配置文件详解，请在配置完毕后删除所有注释或参考仓库内的 `appsettings.json` [示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
 
 ```json
 {
@@ -124,14 +124,16 @@ CREATE TABLE `response_votes` (
 
 > [!CAUTION]
 > 在程序运行时修改配置文件是**极其不推荐的**。因各组件及后台服务对配置的读取均为随用随取，修改配置文件后尽管可以在部分组件上实时生效，但各个组件间的配置状态可能会不一致，导致不可预期的错误。
+> 
 > 与此同时，对配置文件合法性的强制检查仅在程序运行之初。如果配置文件修改出现错误可能导致某个组件无法恢复正常工作或引发不可预期的异常。
+> 
 > 因此请在修改配置文件后重启程序。
 
 ## 问卷包制作
 
 问卷包应是一个 `.psj` 后缀的 JSON 文件，包含问卷的多个版本。
 
-你可以使用附带的 `Utilities` 项目制作问卷包。具体请参考 `Utilities` 项目内的 `readme.md` 。
+你可以使用附带的 `Utilities` 项目制作问卷包。具体请参考 [`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md) 。
 
 以下是一个示例问卷包的结构：
 
@@ -264,10 +266,13 @@ CREATE TABLE `response_votes` (
 
 > [!TIP]
 > 你知道吗？你可以使用 `Utilities` 项目中的 `LLMTools` 来测试你的系统提示词文件的效果。
+> 
 > 但你需要手动设置 User Secret 以及写入程序的系统提示词等配置并在调试环境下进行测试。
+>
+> 详见[`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md)
 
 ## 许可证
 
 本项目采用 MIT 许可证，详情请参见 `LICENSE.txt` 文件。
 
-Copyright © 2025 厦门六中同安校区音游部 & Aunt Studio
+Copyright © 2025 [厦门六中同安校区音游部](https://github.com/ltyyb) & [Aunt Studio](https://github.com/Aunt-Studio)
