@@ -13,10 +13,6 @@
 ### 主要提交表 | `entrancesurveyresponses`
 
 ```sql
-/******************************************/
-/*   DatabaseName = ltyyb_survey   */
-/*   TableName = entrancesurveyresponses   */
-/******************************************/
 CREATE TABLE `entrancesurveyresponses` (
   `ResponseId` varchar(50) NOT NULL COMMENT '随机分配的提交 ID',
   `UserId` varchar(50) NOT NULL COMMENT '随机分配的 UserId',
@@ -26,25 +22,44 @@ CREATE TABLE `entrancesurveyresponses` (
   `SurveyAnswer` json NOT NULL COMMENT '问卷回答结果 Json',
   `LLMInsight` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci COMMENT 'AI生成的见解',
   `IsPushed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否推送到主群',
-  `CreatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '提交时间',
+  `IsDisabled` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否不可见',
   `IsReviewed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已完成审核',
+  `CreatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '提交时间',
   PRIMARY KEY (`ResponseId`),
+  UNIQUE KEY `ShortId` (`ShortId`) USING BTREE,
   KEY `QQId` (`QQId`),
-  KEY `ShortId` (`ShortId`),
   KEY `userid` (`UserId`),
   CONSTRAINT `qqid` FOREIGN KEY (`QQId`) REFERENCES `qqusers` (`QQId`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `userid` FOREIGN KEY (`UserId`) REFERENCES `qqusers` (`UserId`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='审核问卷提交存储表'
-;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='审核问卷提交存储表';
+```
+
+### 已删除问卷存档表 | `deletedentrsurveyresponses`
+
+```sql
+CREATE TABLE `deletedentrsurveyresponses` (
+  `ResponseId` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '随机分配的提交 ID',
+  `UserId` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '随机分配的 UserId',
+  `QQId` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '实际人员QQ号',
+  `ShortId` varchar(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT 'ResponseId 前 8 位',
+  `SurveyVersion` varchar(15) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '问卷版本号',
+  `SurveyAnswer` json NOT NULL COMMENT '问卷回答结果 Json',
+  `IsPushed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否推送到主群',
+  `IsReviewed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已完成审核',
+  `CreatedAt` datetime NOT NULL COMMENT '提交时间',
+  `DeletedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`ResponseId`),
+  UNIQUE KEY `del_entrancesurveyresponses_ShortId_IDX` (`ShortId`) USING BTREE,
+  KEY `qqid_copy` (`QQId`),
+  KEY `userid_copy` (`UserId`),
+  CONSTRAINT `qqid_copy` FOREIGN KEY (`QQId`) REFERENCES `qqusers` (`QQId`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `userid_copy` FOREIGN KEY (`UserId`) REFERENCES `qqusers` (`UserId`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='已删除的问卷相应记录表';
 ```
 
 ### 用户信息表 | `qqusers`
 
 ```sql
-/******************************************/
-/*   DatabaseName = ltyyb_survey   */
-/*   TableName = qqusers   */
-/******************************************/
 CREATE TABLE `qqusers` (
   `UserId` varchar(50) NOT NULL COMMENT '随机分配的用户ID',
   `QQId` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '实际人员QQ号',
@@ -58,10 +73,6 @@ CREATE TABLE `qqusers` (
 ### 众审投票表 | `response_votes`
 
 ```sql
-/******************************************/
-/*   DatabaseName = ltyyb_survey   */
-/*   TableName = response_votes   */
-/******************************************/
 CREATE TABLE `response_votes` (
   `responseId` varchar(50) NOT NULL,
   `userId` varchar(50) NOT NULL,
@@ -118,12 +129,15 @@ CREATE TABLE `response_votes` (
       "OpenAIKey": "sk-****************************", // OpenAI API Key
       "OpenAIEndpoint": "https://api.openai.com/v1", // OpenAI API 基础地址
       "SysPromptPath": "sysPrompt.txt" // 系统提示词文件路径
-  }
+  },
+  
+  // 是否暂停服务
+  "IsDisabled": "false"
 }
 ```
 
 > [!CAUTION]
-> 在程序运行时修改配置文件是**极其不推荐的**。因各组件及后台服务对配置的读取均为随用随取，修改配置文件后尽管可以在部分组件上实时生效，但各个组件间的配置状态可能会不一致，导致不可预期的错误。
+> 在程序运行时修改配置文件是**极其不推荐的**。因程序配置了 `reloadOnChange` ，修改配置文件后尽管可以在部分组件上实时生效，但各个组件间的配置状态可能会不一致，导致不可预期的错误。
 > 
 > 与此同时，对配置文件合法性的强制检查仅在程序运行之初。如果配置文件修改出现错误可能导致某个组件无法恢复正常工作或引发不可预期的异常。
 > 
