@@ -23,10 +23,15 @@ namespace SurveyBackend
             /survey vote <Response Id> [a|d] - 投票问卷
             /survey info <Response Id> - 查看问卷回应信息
             /survey insight <Response Id> - 查看问卷 AI 见解
+            /survey qq <QQ号> - 查询指定 QQ 用户提交的问卷信息
+            /survey disable - 关闭自己的问卷审阅
             
             /survey get <问卷标识符> 指令可以简写为 /survey <问卷标识符>。
             /survey vote 指令后的 Reponse Id 可以简写，具体请参照新问卷提交推送时提示的指令。后跟的 a 为同意，d 为拒绝。
             其余所有指令后的 Reponse Id 参数亦可以简写，具体请参照新问卷提交推送时提示的指令。
+
+            /survey disable 可以关闭自己的问卷审阅，他人将无法再次查看你的问卷。
+
             
             指令示例:
               /survey entr | 获取入群问卷链接
@@ -43,10 +48,26 @@ namespace SurveyBackend
             后端版本: {Assembly.GetExecutingAssembly()
             .GetName().Version?.ToString() ?? "未知"}
             """;
+        private readonly string _adminHelpText = """
+                       管理员 | Survey Service 帮助
+            指令集: 
+                /survey trust <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = true
+                /survey ban <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = false
+                /survey trust - 手动将本群所有用户添加到数据库并标记 IsVerified = true
+                /survey re-insight <Response Id> - 重新生成指定问卷的 AI 见解
+                /survey delete <Response Id> - 软删除指定问卷响应 (存档后删除主条目)
+                /survey restore <Response Id> - 恢复软删除的问卷响应
+                /survey hard-delete <Response Id> - 直接在数据库中删除指定问卷响应 (慎用)
+                /survey disable <Response Id> - 将响应标记为 Disabled
+                /survey list-unreviewed - 列出所有未审核问卷的 Response Id 列表
+                /survey disable-service - 暂时禁用问卷服务(软禁止，仅禁止 OneBot 相关，管理员不受限)
+                /survey enable-service - 重新启用问卷服务
+            """;
         private readonly ILogger<OnebotService> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
         private string? connStr;
+        private bool isDisabled = false;
         private HttpApiClient? onebotApi = null;
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
@@ -88,7 +109,7 @@ namespace SurveyBackend
             reverseWSServer.SetListenerAuthenticationAndConfiguration((listener, selfId) =>
             {
                 onebotApi = listener.ApiClient;
-                
+
                 listener.SocketDisconnected += () =>
                 {
                     _logger.LogWarning("WebSocket连接已断开");
@@ -152,12 +173,27 @@ namespace SurveyBackend
         {
             try
             {
+                if (_configuration["IsDisabled"] == "true")
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务当前不可用。后端服务可能正在维护。如有疑问请联系管理员。");
+                    return;
+                }
+                if (isDisabled)
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务当前不可用。后端服务可能正在维护。如有疑问请联系管理员。");
+                    if (isAdmin(e.UserId))
+                    {
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "哦！您是高贵的管理！马上办~");
+                    }
+                    else return;
+                }
                 // 将信息以空格分割
                 var args = e.Content.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (args.Length < 2)
                 {
                     // 发送帮助信息
                     await SendMessage(e.Endpoint, _helpText);
+                    if (isAdmin(e.UserId)) await SendMessageWithAt(e.Endpoint, e.UserId, _adminHelpText);
                     return;
                 }
                 else if (args.Length == 2)
@@ -178,14 +214,96 @@ namespace SurveyBackend
                                 return;
                             }
                         }
-                        return;
                     }
-                    var surveyId = args[1];
-                    bool flowControl = await ProcessGetCommand(e, surveyId);
-                    if (!flowControl)
+                    else if (args[1] == "disable-service")
                     {
+                        if (isAdmin(e.UserId))
+                        {
+                            isDisabled = true;
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被软禁用。管理员不受限制。\n要获得进一步的限制，请更改 appsettings.json");
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
                         return;
                     }
+                    else if (args[1] == "enable-service")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            isDisabled = false;
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被启用。");
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                        return;
+                    }
+                    else if (args[1] == "disable")
+                    {
+                        var responseId = await ResponseTools.GetResponseIdOfQQId(e.UserId.ToString(), _logger, connStr!);
+                        if (string.IsNullOrWhiteSpace(responseId))
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "找不到你的问卷回应记录。你可能还没有提交过问卷，或者你的问卷回应已被删除。");
+                            return;
+                        }
+                        bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
+                        if (result)
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "你的问卷回应已被标记为不可审阅。其他人将无法查看你的问卷内容。如果你想重新启用审阅，请联系管理员。");
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "无法标记你的问卷回应为不可审阅。请稍后再试，或联系管理员。");
+                        }
+                    }
+					else if (args[1] == "list-unreviewed")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            var responses = await ResponseTools.GetUnreviewedResponseList(_logger, connStr!);
+                            if (responses is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "获取失败");
+                                return;
+                            }
+                            if (responses.Count == 0)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "当前没有未审阅的问卷回应。");
+                                return;
+                            }
+                            var sb = new StringBuilder();
+                            sb.AppendLine($"当前共有 {responses.Count} 个未审阅的问卷回应:");
+                            foreach (var resp in responses)
+                            {
+                                sb.AppendLine($"""
+                                      - {resp.responseId}
+                                       | 提交者: {resp.qqId}
+
+                                    """);
+                            }
+                            await SendMessageWithAt(e.Endpoint, e.UserId, sb.ToString());
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        var surveyId = args[1];
+                        bool flowControl = await ProcessGetCommand(e, surveyId);
+                        if (!flowControl)
+                        {
+                            return;
+                        }
+                    }
+
 
                 }
                 else if (args.Length == 3)
@@ -236,6 +354,7 @@ namespace SurveyBackend
                             [基本提交信息] {responseId[..8]}
                             提交者: {reader.GetString("QQId")}
                             问卷版本: {reader.GetString("SurveyVersion")}
+                            已审阅: {(reader.GetBoolean("IsReviewed") ? "是" : "否")}
                             提交时间: {reader.GetDateTime("CreatedAt"):yyyy-MM-dd HH:mm:ss}
 
                             审阅链接: {link}
@@ -307,6 +426,7 @@ namespace SurveyBackend
                             responseInfo.AppendLine($"ShortId: {reader.GetString("ShortId")}");
                             responseInfo.AppendLine($"SurveyVersion: {reader.GetString("SurveyVersion")}");
                             responseInfo.AppendLine($"IsPushed: {reader.GetBoolean("IsPushed")}");
+                            responseInfo.AppendLine($"IsReviewed: {reader.GetBoolean("IsReviewed")}");
                             responseInfo.AppendLine($"CreatedAt: {reader.GetDateTime("CreatedAt"):yyyy-MM-dd HH:mm:ss}");
                             await SendMessageWithAt(e.Endpoint, e.UserId, "[基本提交信息 RAW]\n" + responseInfo.ToString());
                         }
@@ -347,7 +467,7 @@ namespace SurveyBackend
                     }
                     else if (args[1] == "trust")
                     {
-                        if (e.UserId.ToString() == _configuration["Bot:adminId"])
+                        if (isAdmin(e.UserId))
                         {
                             if (!long.TryParse(args[2], out long qqId))
                             {
@@ -370,7 +490,7 @@ namespace SurveyBackend
                     }
                     else if (args[1] == "ban")
                     {
-                        if (e.UserId.ToString() == _configuration["Bot:adminId"])
+                        if (isAdmin(e.UserId))
                         {
                             if (!long.TryParse(args[2], out long qqId))
                             {
@@ -427,11 +547,11 @@ namespace SurveyBackend
                                 await SendMessageWithAt(e.Endpoint, e.UserId, msg);
                             }
                         }
-                        
+
                     }
                     else if (args[1] == "re-insight")
                     {
-                        if (e.UserId.ToString() == _configuration["Bot:adminId"])
+                        if (isAdmin(e.UserId))
                         {
                             var responseId = await GetFullResponseIdAsync(args[2]);
                             if (responseId is null)
@@ -462,6 +582,168 @@ namespace SurveyBackend
                                 """;
                                 await SendMessageWithAt(e.Endpoint, e.UserId, msg);
                             }
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "delete")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            var responseId = await GetFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+                            bool result = await ResponseTools.SoftDeleteResponse(responseId, _logger, connStr!);
+                            if (result)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已软删除 ResponseId {responseId}。");
+                            }
+                            else
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法软删除 ResponseId {responseId}。");
+                            }
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "restore")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            var responseId = await GetDeletedFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+                            bool result = await ResponseTools.RestoreResponse(responseId, _logger, connStr!);
+                            if (result)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已恢复 ResponseId {responseId}。");
+                            }
+                            else
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法恢复 ResponseId {responseId}。");
+                            }
+
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "hard-delete")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            var responseId = await GetFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+                            bool result = await ResponseTools.HardDeleteResponse(responseId, _logger, connStr!);
+                            if (result)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已硬删除 ResponseId {responseId}。");
+                            }
+                            else
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法硬删除 ResponseId {responseId}。");
+                            }
+
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "qq")
+                    {
+                        var responseId = await ResponseTools.GetResponseIdOfQQId(args[2], _logger, connStr!);
+                        if (string.IsNullOrWhiteSpace(responseId))
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, $"找不到用户 {args[2]} 的问卷回应记录。该用户可能还没有提交过问卷，或者该用户的问卷回应已被删除。");
+                            return;
+                        }
+                        var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
+
+                        await using var conn = new MySqlConnection(connStr);
+                        await conn.OpenAsync(cancellationToken);
+                        const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                        await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                        infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                        await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                        if (await reader.ReadAsync(cancellationToken))
+                        {
+                            // 读取信息
+                            var responseInfo = $"""
+                            [基本提交信息] {responseId[..8]}
+                            提交者: {reader.GetString("QQId")}
+                            问卷版本: {reader.GetString("SurveyVersion")}
+                            已审阅: {(reader.GetBoolean("IsReviewed") ? "是" : "否")}
+                            提交时间: {reader.GetDateTime("CreatedAt"):yyyy-MM-dd HH:mm:ss}
+
+                            审阅链接: {link}
+                            """;
+                            await SendMessageWithAt(e.Endpoint, e.UserId, responseInfo);
+                        }
+
+                        await using var voteConn = new MySqlConnection(connStr);
+                        await voteConn.OpenAsync(cancellationToken);
+                        const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
+                        await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
+                        voteCmd.Parameters.AddWithValue("@responseId", responseId);
+                        await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
+
+                        if (await voteReader.ReadAsync(cancellationToken))
+                        {
+                            // 读取信息
+                            int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
+                            var voteInfo = $"""
+                            [投票信息] {responseId[..8]}
+                            赞成票数: {agreeCount}
+                            反对票数: {denyCount}
+
+                            赞成比例: {((agreeCount + denyCount) != 0 ? (agreeCount / (agreeCount + denyCount)) : "无投票"):F2}
+                            """;
+
+                            await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, $"[QQ信息查询] 未找到指定的 Response Id \"{responseId}\"。");
+                        }
+
+                    }
+                    else if (args[1] == "disable")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            var responseId = await GetFullResponseIdAsync(args[2]);
+                            if (responseId is null)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                return;
+                            }
+                            bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
+                            if (!result)
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法标记 ResponseId {responseId} 为 Disabled。");
+                                return;
+                            }
+                            await SendMessageWithAt(e.Endpoint, e.UserId, $"已将 ResponseId {responseId} 标记为 Disabled。");
                         }
                         else
                         {
@@ -585,12 +867,20 @@ namespace SurveyBackend
                         await SendMessageWithAt(e.Endpoint, e.UserId, "注册用户失败，请联系管理员。\n Cannot register user.");
                         return false;
                     }
+
+
                 }
 
 
+                var requestId = await surveyUser.GetTempRequestId(_logger, connStr!);
 
+                if (string.IsNullOrWhiteSpace(requestId))
+                {
+                    await SendMessageWithAt(e.Endpoint, e.UserId, "无法获取 RequestId，请联系管理员。\n RequestId is null or empty.");
+                    return false;
+                }
 
-                var link = $"https://ltyyb.auntstudio.com/survey/entr?userId={surveyUser.UserId}";
+                var link = $"https://ltyyb.auntstudio.com/survey/entr?requestId={requestId}";
                 var atMessage = SendingMessage.At(e.UserId);
                 var message = new SendingMessage($"""
 
@@ -601,6 +891,8 @@ namespace SurveyBackend
 
                         完成问卷。
                         如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
+                        请注意，此链接2小时内有效。
+                        如果您在1小时以内获取过问卷，则该链接继承上一链接有效期。
 
                         请注意看清链接所属用户，请勿填写他人问卷链接。
                         本消息对应用户: 
@@ -737,30 +1029,12 @@ namespace SurveyBackend
 
         private async Task<string?> GetFullResponseIdAsync(string shortId)
         {
-            if (shortId.Length > 10) return shortId; 
+            return await ResponseTools.GetFullResponseIdAsync(shortId, _logger, connStr!);
+        }
 
-            string fullId;
-
-            await using var conn = new MySqlConnection(connStr);
-            await conn.OpenAsync();
-            const string shortQuery = "SELECT ResponseId FROM EntranceSurveyResponses WHERE ShortId = @shortId LIMIT 1";
-
-
-            await using var cmd = new MySqlCommand(shortQuery, conn);
-            cmd.Parameters.AddWithValue("@shortId", shortId);
-            var result = await cmd.ExecuteScalarAsync();
-            if (result != null && result != DBNull.Value)
-            {
-                fullId = result.ToString() ?? string.Empty;
-                _logger.LogInformation("Found full ResponseId for ShortId {short}: {full}", shortId, fullId);
-                return fullId;
-            }
-            else
-            {
-                _logger.LogInformation("Cannot find full ResponseId for {short}", shortId);
-                return null;
-            }
-
+        private async Task<string?> GetDeletedFullResponseIdAsync(string shortId)
+        {
+            return await ResponseTools.GetFullResponseIdAsync(shortId, _logger, connStr!, true);
         }
 
         private bool IsVerified(string qqId)
@@ -1133,6 +1407,10 @@ namespace SurveyBackend
                 _logger.LogError(ex, "Unexpected error while generating insight for responseId: {responseId}", responseId);
                 return false;
             }
+        }
+        private bool isAdmin(long userId)
+        {
+            return userId.ToString() == _configuration["Bot:adminId"];
         }
 
         #region IOnebotService

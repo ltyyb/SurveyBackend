@@ -29,8 +29,9 @@ namespace SurveyBackend.Controllers
 
 
 
+
         [HttpGet("getSurvey")]
-        public async Task<ActionResult<string>> GetSurveyAsync([FromHeader(Name = "SURVEY-USER-ID")] string userId)
+        public async Task<ActionResult<object>> GetSurveyAsync([FromHeader(Name = "SURVEY-USER-ID")] string userId)
         {
             if (string.IsNullOrWhiteSpace(userId))
             {
@@ -150,6 +151,17 @@ namespace SurveyBackend.Controllers
             if (string.IsNullOrWhiteSpace(dataSubmission.surveyId))
             {
                 return BadRequest(new { error = "Invaild SurveyId." });
+            }
+            var connStr = _configuration.GetConnectionString("DefaultConnection");
+
+            if (string.IsNullOrWhiteSpace(connStr))
+            {
+                _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                return StatusCode(500, new { status = -500, error = "Server Config Error" });
+            }
+            if (await ResponseTools.IsResponseDisabled(dataSubmission.surveyId, _logger, connStr))
+            {
+                return StatusCode(403, new { error = "This survey response is disabled and cannot be accessed." });
             }
 
             var response = await GetResponseByResponseId(dataSubmission.surveyId);

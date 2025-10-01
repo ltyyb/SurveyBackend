@@ -94,23 +94,11 @@ namespace SurveyBackend
         {
             try
             {
-                var query = "SELECT ResponseId, UserId, QQId FROM EntranceSurveyResponses WHERE IsReviewed = false";
-                var responses = new List<(string responseId, string userId, string qqId)>();
-
-
-                await using (var connection = new MySqlConnection(_connStr))
+                List<(string responseId, string qqId, string userId)>? responses = await ResponseTools.GetUnreviewedResponseList(_logger, _connStr);
+                if (responses is null)
                 {
-                    await connection.OpenAsync(cancellationToken);
-
-                    await using var command = new MySqlCommand(query, connection);
-                    // 执行查询获取所有未完成审核的记录
-                    await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-                    while (await reader.ReadAsync(cancellationToken))
-                    {
-                        responses.Add((reader.GetString("ResponseId"), reader.GetString("UserId"), reader.GetString("QQId")));
-                    }
+                    return;
                 }
-
                 _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
                 // 针对每一个未推送的问卷响应，尝试验证
                 foreach (var (responseId, userId, qqId) in responses)

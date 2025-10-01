@@ -1,5 +1,7 @@
-﻿using MySqlConnector;
+﻿ using MySqlConnector;
+using Sisters.WudiLib.Posts;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace SurveyBackend
 {
@@ -116,6 +118,56 @@ namespace SurveyBackend
             return new SurveyUser(userId, qqId);
         }
 
+        public static async Task<SurveyUser?> GetUserByRequestIdAsync(string requestId, ILogger logger, string connStr)
+        {
+            if (string.IsNullOrWhiteSpace(requestId))
+            {
+                logger.LogError("GetUserByRequestIdAsync called with null or empty RequestId.");
+                return null;
+            }
+            string userId = string.Empty;
+            try
+            {
+                await using (var conn = new MySqlConnection(connStr))
+                {
+                    await conn.OpenAsync();
+                    const string sql = "SELECT UserId FROM RequestId WHERE RequestId = @requestId AND CreateTime > NOW() - INTERVAL 2 HOUR LIMIT 1";
+                    await using var cmd = new MySqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@requestId", requestId);
+
+                    var result = await cmd.ExecuteScalarAsync();
+                    if (result != null && result != DBNull.Value)
+                    {
+                        userId = result?.ToString() ?? string.Empty;
+                        logger.LogInformation("Found UserId for RequestId {UserId}: {RequestId}", userId, requestId);
+                    }
+                    else
+                    {
+                        logger.LogInformation("No available UserId found for RequestId: {UserId}", requestId);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(userId))
+                {
+                    return await GetUserByIdAsync(userId, logger, connStr);
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            catch (MySqlException ex)
+            {
+                logger.LogError(ex, "Database error in GetUserByRequestIdAsync for RequestId: {RequestId}", requestId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unexpected error in GetUserByRequestIdAsync for RequestId: {RequestId}", requestId);
+                return null;
+            }
+        }
+
         /// <summary>
         /// <para>
         /// 传入 QQId，随机生成 UserId，并返回一个 <see cref="SurveyUser"/> 实例。
@@ -206,12 +258,109 @@ namespace SurveyBackend
             }
         }
 
+        /// <summary>
+        /// 检查该用户对应QQ号是否已经在数据库中
+        /// </summary>
+        /// <param name="connStr"></param>
+        /// <returns></returns>
         public async Task<bool> IsUserExisted(string connStr)
         {
             return await CheckValueExistsAsync(connStr, "QQUsers", "QQId", QQId);
         }
 
+        /// <summary>
+        /// 获取与该用户绑定的临时 RequestId。如果仍有 RequestId 在一个小时以上时间有效，则返回已存在的 RequestId。
+        /// 否则重新生成并记录到数据库。
+        /// </summary>
+        /// <param name="connStr"></param>
+        /// <returns></returns>
+        public async Task<string?> GetTempRequestId(ILogger logger, string connStr)
+        {
 
+            try
+            {
+                if (!await IsUserExisted(connStr))
+                {
+                    logger.LogError("无法为未注册的用户创建 RequestId.");
+                    return null;
+                }
+                // 查询是否有一个小时内创建的 RequestId
+                List<(string, DateTime)> recentRequestId = new();
+                await using (var conn = new MySqlConnection(connStr))
+                {
+                    await conn.OpenAsync();
+                    const string sql = "SELECT RequestId, CreateTime FROM `requestid` WHERE UserId = @userId AND CreateTime > NOW() - INTERVAL 1 HOUR";
+                    await using var cmd = new MySqlCommand(sql, conn);
+                    cmd.Parameters.AddWithValue("@userId", UserId);
+
+                    await using var reader = await cmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
+                    {
+                        recentRequestId.Add((reader.GetString("RequestId"), (reader.GetDateTime("CreateTime"))));
+                    }
+                }
+
+                // 如果存在返回最新的
+                if (recentRequestId.Count > 0)
+                {
+                    var latest = recentRequestId.MaxBy(r => r.Item2);
+                    logger.LogInformation("Found latest existing RequestId for UserId {UserId}: {RequestId}", UserId, latest.Item1);
+                    return latest.Item1;
+                }
+                else
+                {
+                    // 否则生成新的 RequestId 并保存
+                    string? newRequestId = await GenerateRequestId(logger, connStr);
+                    if (string.IsNullOrEmpty(newRequestId))
+                    {
+                        logger.LogError("Failed to request to generate new RequestId for UserId {UserId}", UserId);
+                        return null;
+                    }
+                    return newRequestId;
+                }
+
+            }
+            catch (MySqlException ex)
+            {
+                logger.LogError(ex, "Database error while saving SurveyUser: {UserId} ({QQId})", UserId, QQId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unexpected error while saving SurveyUser: {UserId} ({QQId})", UserId, QQId);
+                return null;
+            }
+
+        }
+
+        /// <summary>
+        /// 生成新的 RequestId 并提交到数据库
+        /// </summary>
+        /// <param name="connStr"></param>
+        /// <returns></returns>
+        private async Task<string?> GenerateRequestId(ILogger logger, string connStr)
+        {
+            string newRequestId = Guid.NewGuid().ToString("N")[..30]; // 生成一个随机的 RequestId
+            await using (var conn = new MySqlConnection(connStr))
+            {
+                await conn.OpenAsync();
+                const string insertSql = "INSERT INTO `requestid` (RequestId, UserId) VALUES (@requestId, @userId)";
+                await using var cmd = new MySqlCommand(insertSql, conn);
+                cmd.Parameters.AddWithValue("@requestId", newRequestId);
+                cmd.Parameters.AddWithValue("@userId", UserId);
+                var rowsAffected = await cmd.ExecuteNonQueryAsync();
+                if (rowsAffected > 0)
+                {
+                    logger.LogInformation("Generated and saved new RequestId for UserId {UserId}: {RequestId}", UserId, newRequestId);
+                    return newRequestId;
+                }
+                else
+                {
+                    logger.LogError("Failed to save new RequestId for UserId {UserId}: {RequestId}", UserId, newRequestId);
+                    return null;
+                }
+            }
+        }
         public static async Task<bool> IsUserExisted(string qqId, string connStr)
         {
             var surveyUser = new SurveyUser
