@@ -19,7 +19,7 @@ namespace SurveyBackend.Controllers
         private readonly ILoggerFactory _loggerFactory;
         private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
 
-        public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory , IConfiguration configuration, IOnebotService onebotService)
+        public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IConfiguration configuration, IOnebotService onebotService)
         {
             _configuration = configuration;
             _logger = logger;

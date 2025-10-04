@@ -8,7 +8,7 @@ namespace Utilities
         {
             WriteIndented = false
         };
-        private async static Task Main(string[] args)
+        private static async Task Main(string[] args)
         {
             if (args.Length > 0)
             {

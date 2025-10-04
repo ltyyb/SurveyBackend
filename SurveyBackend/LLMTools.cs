@@ -1,8 +1,6 @@
 ﻿using Microsoft.Extensions.AI;
 using Newtonsoft.Json.Linq;
 using OpenAI;
-using Sisters.WudiLib.Posts;
-using System.Diagnostics.CodeAnalysis;
 
 namespace SurveyBackend
 {
@@ -28,9 +26,9 @@ namespace SurveyBackend
 
         //        稍后 user 将提供问卷内容，请你根据上述要求进行评分和见解分析。
         //        """;
-        private string? sysPrompt;
+        private readonly string? sysPrompt;
         private List<ChatMessage>? _chatHistory = [];
-        private IChatClient? chatClient;
+        private readonly IChatClient? chatClient;
         private readonly IConfiguration _configuration;
         private readonly ILogger<LLMTools> _logger;
         public bool IsAvailable { get; private set; } = false;

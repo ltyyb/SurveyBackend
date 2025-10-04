@@ -1,8 +1,7 @@
 ﻿using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
-using OpenAI;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using OpenAI;
 
 namespace Utilities
 {
@@ -29,7 +28,7 @@ namespace Utilities
                 稍后 user 将提供问卷内容，请你根据上述要求进行评分和见解分析。
                 """;
         private List<ChatMessage> _chatHistory = [];
-        private IChatClient chatClient;
+        private readonly IChatClient chatClient;
         public LLMTools()
         {
             var config = new ConfigurationBuilder().AddUserSecrets<Program>().Build();

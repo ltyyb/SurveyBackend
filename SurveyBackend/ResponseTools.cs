@@ -1,7 +1,4 @@
 ﻿using MySqlConnector;
-using System.ComponentModel;
-using System.Text;
-using System.Threading;
 
 namespace SurveyBackend
 {
@@ -62,12 +59,12 @@ namespace SurveyBackend
                         insertCmd.Parameters.AddWithValue("@IsPushed", reader.GetBoolean("IsPushed"));
                         insertCmd.Parameters.AddWithValue("@IsReviewed", reader.GetBoolean("IsReviewed"));
                         insertCmd.Parameters.AddWithValue("@CreatedAt", reader.GetDateTime("CreatedAt"));
-                        
+
                         int insertResult = await insertCmd.ExecuteNonQueryAsync();
                         if (insertResult > 0)
                         {
                             return await HardDeleteResponse(responseId, logger, connStr);
-                            
+
                         }
                         else
                         {
@@ -180,7 +177,7 @@ namespace SurveyBackend
 
 
 
-                await using var cmd = new MySqlCommand(shortQuery, conn);
+            await using var cmd = new MySqlCommand(shortQuery, conn);
             cmd.Parameters.AddWithValue("@shortId", shortId);
             var result = await cmd.ExecuteScalarAsync();
             if (result != null && result != DBNull.Value)
