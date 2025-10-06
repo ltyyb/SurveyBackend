@@ -1,4 +1,5 @@
 ﻿using MySqlConnector;
+using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
@@ -60,6 +61,9 @@ namespace SurveyBackend
                 /survey hard-delete <Response Id> - 直接在数据库中删除指定问卷响应 (慎用)
                 /survey disable <Response Id> - 将响应标记为 Disabled
                 /survey list-unreviewed - 列出所有未审核问卷的 Response Id 列表
+                /survey stastics | aggregator - 使用默认筛选器获取统计信息
+                /survey stastics | aggregator <逗号分隔无空格题目筛选> - 使用指定筛选器获取统计信息
+                /survey stastics | aggregator [all] - 获取所有题目的统计信息
                 /survey disable-service - 暂时禁用问卷服务(软禁止，仅禁止 OneBot 相关，管理员不受限)
                 /survey enable-service - 重新启用问卷服务
             """;
@@ -287,6 +291,34 @@ namespace SurveyBackend
                                     """);
                             }
                             await SendMessageWithAt(e.Endpoint, e.UserId, sb.ToString());
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "stastics" || args[1] == "aggregator")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "未指定的过滤器，将使用默认过滤器。该功能尚不稳定，请留意日志。");
+                            string[] qFilter = ["Grade", "RhythmGameDeviceStyle", "RhythmGameStyle", "RhythmGameSelect", "RhythmGame Culture", "RhythmGameActivities"];
+                            var sb = new StringBuilder();
+                            for (int i = 0; i < qFilter.Length; i++)
+                            {
+                                if (i != qFilter.Length - 1)
+                                {
+                                    sb.Append(qFilter[i] + ", ");
+                                }
+                                else
+                                {
+                                    sb.Append(qFilter[i]);
+                                }
+                            }
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
+                            _ = RunAggregator(qFilter, e);
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
                         }
                         else
                         {
@@ -744,6 +776,44 @@ namespace SurveyBackend
                                 return;
                             }
                             await SendMessageWithAt(e.Endpoint, e.UserId, $"已将 ResponseId {responseId} 标记为 Disabled。");
+                        }
+                        else
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                            return;
+                        }
+                    }
+                    else if (args[1] == "stastics" || args[1] == "aggregator")
+                    {
+                        if (isAdmin(e.UserId))
+                        {
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "该功能尚不稳定，请留意日志。");
+                            string[]? qFilter = null;
+                            if (args[2] == "[all]")
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "将不设置过滤器以遍历获取所有题目。");
+                            }
+                            else
+                            {
+                                string filter = args[2];
+                                qFilter = filter.Split(',');
+                                var sb = new StringBuilder();
+                                for (int i = 0; i < qFilter.Length; i++)
+                                {
+                                    if (i != qFilter.Length - 1)
+                                    {
+                                        sb.Append(qFilter[i] + ", ");
+                                    }
+                                    else
+                                    {
+                                        sb.Append(qFilter[i]);
+                                    }
+                                }
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
+                            }
+
+                                _ = RunAggregator(qFilter, e);
+                            await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
                         }
                         else
                         {
@@ -1413,6 +1483,70 @@ namespace SurveyBackend
             return userId.ToString() == _configuration["Bot:adminId"];
         }
 
+        private async Task RunAggregator(string[]? questionFilter, Message e)
+        {
+            try
+            {
+                _logger.LogInformation("正在从数据库中读取响应...");
+                var responses = await FetchAllResponsesAsync(connStr!, "entrancesurveyresponses", "SurveyAnswer");
+                _logger.LogInformation("读取到{n}条响应。", responses.Count);
+                var schemaText = SurveyPkgInstance.Instance.GetSurvey().SurveyJson;
+                var schema = JObject.Parse(schemaText);
+                var metas = SurveySchemaParser.ParseQuestionsFiltered(schema, "zh-cn", null, questionFilter);
+                // 3. 聚合统计
+                var aggregator = new Aggregator(metas);
+                int processed = 0;
+                foreach (var respText in responses)
+                {
+                    if (string.IsNullOrWhiteSpace(respText)) continue;
+                    try
+                    {
+                        var jobj = JObject.Parse(respText);
+                        aggregator.AddResponse(jobj);
+                        processed++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "跳过一条无法解析的响应。");
+                    }
+                }
+
+                _logger.LogInformation("成功处理 {processed} 条响应。", processed);
+                var reporter = new Reporter(aggregator);
+                string report = reporter.ReportString();
+                int skipped = responses.Count - processed;
+                await SendMessageWithAt(e.Endpoint, e.UserId, $"聚合结果 (共 {responses.Count} 条{(skipped == 0 ? "" : $", 由于异常跳过{skipped}条")}):\n"
+                    + report);
+            }
+            catch (Exception ex)
+            {
+                await SendMessageWithAt(e.Endpoint, e.UserId, $"Aggregator 出现异常:{ex.Message}\n- 调用堆栈:\n{ex.StackTrace}\n\n已终止线程。");
+                _logger.LogError(ex, "Aggregator 出现异常。已终止线程");
+                return;
+            }
+
+
+        }
+        private static async Task<List<string>> FetchAllResponsesAsync(string connStr, string table, string column)
+        {
+            var list = new List<string>();
+            using (var conn = new MySqlConnection(connStr))
+            {
+                await conn.OpenAsync();
+                // 简单安全的分页读取（可根据数据量调整）
+                string sql = $"SELECT `{column}` FROM `{table}`";
+                using (var cmd = new MySqlCommand(sql, conn))
+                using (var rdr = await cmd.ExecuteReaderAsync())
+                {
+                    while (await rdr.ReadAsync())
+                    {
+                        if (!rdr.IsDBNull(0))
+                            list.Add(rdr.GetString(0));
+                    }
+                }
+            }
+            return list;
+        }
         #region IOnebotService
 
         public bool IsAvailable { get; private set; } = false;

@@ -1,4 +1,7 @@
-﻿using System.Text.Json;
+﻿using MySqlConnector;
+using Newtonsoft.Json.Linq;
+using SurveyBackend;
+using System.Text.Json;
 
 namespace Utilities
 {
@@ -30,7 +33,7 @@ namespace Utilities
                     var result = await lLMTools.GetInsight(surveyPrompt);
                     Console.WriteLine("\nLLM 回复:\n" + result);
                 }
-                if (args[0] == "packSurvey")
+                else if (args[0] == "packSurvey")
                 {
                     Console.WriteLine("=== Survey 打包交互工具 ===");
                     var psjPath = string.Empty;
@@ -66,6 +69,76 @@ namespace Utilities
                         }
                     }
                     Console.WriteLine("\n");
+                }
+                else if (args[0] == "aggregator" && args.Length > 1)
+                {
+                    string OutputFolder = args[1];
+                    Console.WriteLine("输问卷路径");
+                    string? SurveySchemaPath = Console.ReadLine();
+                    string Locale = "zh-cn";
+                    Console.WriteLine("输连接字符串");
+                    string ConnectionString = Console.ReadLine();
+                    string ResponsesTable = "entrancesurveyresponses";
+                    string ResponseColumn = "SurveyAnswer";
+                    // === 过滤选项 ===
+                    // 可选：设置 PageFilter 为页面的 name 或 title（部分匹配），则仅统计该页面下的题目
+                    // 例如：static string PageFilter = "page1"; 或 null 表示不过滤
+                    string? PageFilter = null;
+
+
+                    // 可选：设置 QuestionFilter 为要统计的题目 name 列表（精确匹配），例如 new[] { "q1", "q2" }
+                    // 如果为 null 或空数组，则统计页面/全表中所有题目
+                    string[] QuestionFilter = ["Grade", "RhythmGameDeviceStyle", "RhythmGameStyle", "RhythmGameSelect", "RhythmGame Culture", "RhythmGameActivities"];
+                    Console.WriteLine("SurveyJS Aggregator - Start");
+
+                    // 确保输出目录存在
+                    Directory.CreateDirectory(OutputFolder);
+
+                    // 1. 读取并解析问卷题面
+                    if (!File.Exists(SurveySchemaPath))
+                    {
+                        Console.WriteLine($"问卷题面文件不存在: {SurveySchemaPath}");
+                        return;
+                    }
+
+                    var schemaText = File.ReadAllText(SurveySchemaPath);
+                    var schema = JObject.Parse(schemaText);
+                    var metas = SurveySchemaParser.ParseQuestionsFiltered(schema, Locale, PageFilter, QuestionFilter);
+
+                    Console.WriteLine($"解析到 {metas.Count} 个题目元数据。");
+
+                    // 2. 从数据库读取所有响应
+                    var responses = FetchAllResponses(ConnectionString, ResponsesTable, ResponseColumn);
+                    Console.WriteLine($"读取到 {responses.Count} 条响应。");
+
+                    // 3. 聚合统计
+                    var aggregator = new Aggregator(metas);
+                    int processed = 0;
+                    foreach (var respText in responses)
+                    {
+                        if (string.IsNullOrWhiteSpace(respText)) continue;
+                        try
+                        {
+                            var jobj = JObject.Parse(respText);
+                            aggregator.AddResponse(jobj);
+                            processed++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"跳过一条不能解析的响应：{ex.Message}");
+                        }
+                    }
+
+                    Console.WriteLine($"成功处理 {processed} 条响应。");
+
+                    // 4. 输出报告
+                    var reporter = new Reporter(aggregator, OutputFolder);
+                    reporter.DumpConsole();
+                    reporter.SaveJson("report.json");
+                    reporter.SaveCsv("report.csv");
+
+                    Console.WriteLine("报告已生成到目录: " + Path.GetFullPath(OutputFolder));
+                    Console.WriteLine("SurveyJS Aggregator - End");
                 }
                 else
                 {
@@ -338,6 +411,26 @@ namespace Utilities
             {
                 throw new FormatException("Invalid release date format.");
             }
+        }
+        private static List<string> FetchAllResponses(string connStr, string table, string column)
+        {
+            var list = new List<string>();
+            using (var conn = new MySqlConnection(connStr))
+            {
+                conn.Open();
+                // 简单安全的分页读取（可根据数据量调整）
+                string sql = $"SELECT `{column}` FROM `{table}`";
+                using (var cmd = new MySqlCommand(sql, conn))
+                using (var rdr = cmd.ExecuteReader())
+                {
+                    while (rdr.Read())
+                    {
+                        if (!rdr.IsDBNull(0))
+                            list.Add(rdr.GetString(0));
+                    }
+                }
+            }
+            return list;
         }
     }
 }

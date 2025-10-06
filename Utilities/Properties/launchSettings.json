@@ -2,7 +2,7 @@
   "profiles": {
     "Utilities": {
       "commandName": "Project",
-      "commandLineArgs": "llmtest"
+      "commandLineArgs": "aggregator F:\\test"
     }
   }
 }
