@@ -134,19 +134,17 @@ namespace SurveyBackend
                 listener.MessageEvent += async (api, e) =>
                 {
                     LastMessageTime = DateTime.Now;
-                    if (e.Content.Text.Trim().ToLowerInvariant().StartsWith("survey"))
+                    if (e.Content.Text.Trim().StartsWith("survey", StringComparison.InvariantCultureIgnoreCase))
                     {
-                        _logger.LogInformation("Get survey cmd");
+                        _logger.LogInformation("Get survey cmd"); 
                         await SurveyCmdProcesser(e, stoppingToken);
                     }
                 };
                 listener.GroupRequestEvent += (api, e) =>
                 {
                     _logger.LogInformation("收到群请求: {groupId} 来自 {userId}", e.GroupId, e.UserId);
-                    bool isVerified = false;
                     // 验证是否已审核
-                    isVerified = IsVerified(e.UserId.ToString());
-                    if (isVerified)
+                    if (IsVerified(e.UserId.ToString()))
                     {
                         return true;
                     }
@@ -192,7 +190,7 @@ namespace SurveyBackend
                     else return;
                 }
                 // 将信息以空格分割
-                var args = e.Content.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var args = e.Content.Text.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (args.Length < 2)
                 {
                     // 发送帮助信息
@@ -202,187 +200,206 @@ namespace SurveyBackend
                 }
                 else if (args.Length == 2)
                 {
-                    if (args[1] == "trust")
+                    switch (args[1])
                     {
-                        if (e is GroupMessage groupMsg)
-                        {
-                            if (groupMsg.Sender.UserId.ToString() == _configuration["Bot:adminId"]
-                                && groupMsg.GroupId.ToString() == _configuration["Bot:mainGroupId"])
+                        case "trust":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "将强制为本群所有用户注册到数据库并自动配置 IsVerified = true..");
-                                await TrustGroup(groupMsg.GroupId, cancellationToken);
+                                if (e is GroupMessage groupMsg)
+                                {
+                                    if (groupMsg.Sender.UserId.ToString() == _configuration["Bot:adminId"]
+                                        && groupMsg.GroupId.ToString() == _configuration["Bot:mainGroupId"])
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "将强制为本群所有用户注册到数据库并自动配置 IsVerified = true..");
+                                        await TrustGroup(groupMsg.GroupId, cancellationToken);
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                        return;
+                                    }
+                                }
+
+                                break;
+                            }
+
+                        case "disable-service":
+                            if (isAdmin(e.UserId))
+                            {
+                                isDisabled = true;
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被软禁用。管理员不受限制。\n要获得进一步的限制，请更改 appsettings.json");
                             }
                             else
                             {
                                 await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
                                 return;
                             }
-                        }
-                    }
-                    else if (args[1] == "disable-service")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            isDisabled = true;
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被软禁用。管理员不受限制。\n要获得进一步的限制，请更改 appsettings.json");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
                             return;
-                        }
-                        return;
-                    }
-                    else if (args[1] == "enable-service")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            isDisabled = false;
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被启用。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                        return;
-                    }
-                    else if (args[1] == "disable")
-                    {
-                        var responseId = await ResponseTools.GetResponseIdOfQQId(e.UserId.ToString(), _logger, connStr!);
-                        if (string.IsNullOrWhiteSpace(responseId))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "找不到你的问卷回应记录。你可能还没有提交过问卷，或者你的问卷回应已被删除。");
-                            return;
-                        }
-                        bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
-                        if (result)
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "你的问卷回应已被标记为不可审阅。其他人将无法查看你的问卷内容。如果你想重新启用审阅，请联系管理员。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "无法标记你的问卷回应为不可审阅。请稍后再试，或联系管理员。");
-                        }
-                    }
-                    else if (args[1] == "list-unreviewed")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responses = await ResponseTools.GetUnreviewedResponseList(_logger, connStr!);
-                            if (responses is null)
+                        case "enable-service":
+                            if (isAdmin(e.UserId))
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "获取失败");
+                                isDisabled = false;
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务已被启用。");
+                            }
+                            else
+                            {
+                                await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
                                 return;
                             }
-                            if (responses.Count == 0)
+                            return;
+                        case "disable":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "当前没有未审阅的问卷回应。");
-                                return;
+                                var responseId = await ResponseTools.GetResponseIdOfQQId(e.UserId.ToString(), _logger, connStr!);
+                                if (string.IsNullOrWhiteSpace(responseId))
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "找不到你的问卷回应记录。你可能还没有提交过问卷，或者你的问卷回应已被删除。");
+                                    return;
+                                }
+                                bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
+                                if (result)
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "你的问卷回应已被标记为不可审阅。其他人将无法查看你的问卷内容。如果你想重新启用审阅，请联系管理员。");
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "无法标记你的问卷回应为不可审阅。请稍后再试，或联系管理员。");
+                                }
+
+                                break;
                             }
-                            var sb = new StringBuilder();
-                            sb.AppendLine($"当前共有 {responses.Count} 个未审阅的问卷回应:");
-                            foreach (var resp in responses)
+
+                        case "list-unreviewed":
                             {
-                                sb.AppendLine($"""
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responses = await ResponseTools.GetUnreviewedResponseList(_logger, connStr!);
+                                    if (responses is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "获取失败");
+                                        return;
+                                    }
+                                    if (responses.Count == 0)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "当前没有未审阅的问卷回应。");
+                                        return;
+                                    }
+                                    var sb = new StringBuilder();
+                                    sb.AppendLine($"当前共有 {responses.Count} 个未审阅的问卷回应:");
+                                    foreach (var resp in responses)
+                                    {
+                                        sb.AppendLine($"""
                                       - {resp.responseId}
                                        | 提交者: {resp.qqId}
 
                                     """);
-                            }
-                            await SendMessageWithAt(e.Endpoint, e.UserId, sb.ToString());
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "stastics" || args[1] == "aggregator")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "未指定的过滤器，将使用默认过滤器。该功能尚不稳定，请留意日志。");
-                            string[] qFilter = ["Grade", "RhythmGameDeviceStyle", "RhythmGameStyle", "RhythmGameSelect", "RhythmGame Culture", "RhythmGameActivities"];
-                            var sb = new StringBuilder();
-                            for (int i = 0; i < qFilter.Length; i++)
-                            {
-                                if (i != qFilter.Length - 1)
-                                {
-                                    sb.Append(qFilter[i] + ", ");
+                                    }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, sb.ToString());
                                 }
                                 else
                                 {
-                                    sb.Append(qFilter[i]);
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
                                 }
+
+                                break;
                             }
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
-                            _ = RunAggregator(qFilter, e);
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        var surveyId = args[1];
-                        bool flowControl = await ProcessGetCommand(e, surveyId);
-                        if (!flowControl)
-                        {
-                            return;
-                        }
+
+                        case "stastics":
+                        case "aggregator":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "未指定的过滤器，将使用默认过滤器。该功能尚不稳定，请留意日志。");
+                                    string[] qFilter = ["Grade", "RhythmGameDeviceStyle", "RhythmGameStyle", "RhythmGameSelect", "RhythmGame Culture", "RhythmGameActivities"];
+                                    var sb = new StringBuilder();
+                                    for (int i = 0; i < qFilter.Length; i++)
+                                    {
+                                        if (i != qFilter.Length - 1)
+                                        {
+                                            sb.Append(qFilter[i] + ", ");
+                                        }
+                                        else
+                                        {
+                                            sb.Append(qFilter[i]);
+                                        }
+                                    }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
+                                    _ = RunAggregator(qFilter, e);
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        default:
+                            {
+                                var surveyId = args[1];
+                                bool flowControl = await ProcessGetCommand(e, surveyId);
+                                if (!flowControl)
+                                {
+                                    return;
+                                }
+
+                                break;
+                            }
                     }
 
 
                 }
                 else if (args.Length == 3)
                 {
-                    if (args[1] == "get")
+                    switch (args[1])
                     {
-                        var surveyId = args[2];
-                        bool flowControl = await ProcessGetCommand(e, surveyId);
-                        if (!flowControl)
-                        {
-                            return;
-                        }
-                    }
-                    else if (args[1] == "info")
-                    {
-                        if (e is GroupMessage groupMsg)
-                        {
-                            if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+                        case "get":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
-                                return;
+                                var surveyId = args[2];
+                                bool flowControl = await ProcessGetCommand(e, surveyId);
+                                if (!flowControl)
+                                {
+                                    return;
+                                }
+
+                                break;
                             }
-                        }
-                        var responseId = args[2];
-                        if (responseId.Length < 10)
-                        {
-                            var fullId = await GetFullResponseIdAsync(responseId);
-                            if (string.IsNullOrWhiteSpace(fullId))
+
+                        case "info":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"[信息查询] 无法补全 ResponseId。请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            responseId = fullId;
-                        }
+                                if (e is GroupMessage groupMsg)
+                                {
+                                    if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
+                                        return;
+                                    }
+                                }
+                                var responseId = args[2];
+                                if (responseId.Length < 10)
+                                {
+                                    var fullId = await GetFullResponseIdAsync(responseId);
+                                    if (string.IsNullOrWhiteSpace(fullId))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"[信息查询] 无法补全 ResponseId。请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    responseId = fullId;
+                                }
 
-                        var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
+                                var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
 
-                        await using var conn = new MySqlConnection(connStr);
-                        await conn.OpenAsync(cancellationToken);
-                        const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
-                        await using var infoCmd = new MySqlCommand(infoQuery, conn);
-                        infoCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
-                        if (await reader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            var responseInfo = $"""
+                                await using var conn = new MySqlConnection(connStr);
+                                await conn.OpenAsync(cancellationToken);
+                                const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                                await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                                infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                                if (await reader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    var responseInfo = $"""
                             [基本提交信息] {responseId[..8]}
                             提交者: {reader.GetString("QQId")}
                             问卷版本: {reader.GetString("SurveyVersion")}
@@ -391,21 +408,21 @@ namespace SurveyBackend
 
                             审阅链接: {link}
                             """;
-                            await SendMessageWithAt(e.Endpoint, e.UserId, responseInfo);
-                        }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, responseInfo);
+                                }
 
-                        await using var voteConn = new MySqlConnection(connStr);
-                        await voteConn.OpenAsync(cancellationToken);
-                        const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
-                        await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
-                        voteCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
+                                await using var voteConn = new MySqlConnection(connStr);
+                                await voteConn.OpenAsync(cancellationToken);
+                                const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
+                                await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
+                                voteCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
 
-                        if (await voteReader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
-                            var voteInfo = $"""
+                                if (await voteReader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
+                                    var voteInfo = $"""
                             [投票信息] {responseId[..8]}
                             赞成票数: {agreeCount}
                             反对票数: {denyCount}
@@ -413,67 +430,70 @@ namespace SurveyBackend
                             赞成比例: {((agreeCount + denyCount) != 0 ? (agreeCount / (agreeCount + denyCount)) : "无投票"):F2}
                             """;
 
-                            await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"[信息查询] 未找到指定的 Response Id \"{responseId}\"。");
-                        }
-                    }
-                    else if (args[1] == "info-raw")
-                    {
-                        if (e is GroupMessage groupMsg)
-                        {
-                            if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
-                                return;
-                            }
-                        }
-                        string responseId = args[2];
-                        if (responseId.Length < 10)
-                        {
-                            var fullId = await GetFullResponseIdAsync(responseId);
-                            if (string.IsNullOrWhiteSpace(fullId))
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"[Raw 信息查询] 无法补全 ResponseId。请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            responseId = fullId;
-                        }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"[信息查询] 未找到指定的 Response Id \"{responseId}\"。");
+                                }
 
-                        await using var conn = new MySqlConnection(connStr);
-                        await conn.OpenAsync(cancellationToken);
-                        const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
-                        await using var infoCmd = new MySqlCommand(infoQuery, conn);
-                        infoCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
-                        if (await reader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            var responseInfo = new StringBuilder();
-                            responseInfo.AppendLine($"ResponseId: {reader.GetString("ResponseId")}");
-                            responseInfo.AppendLine($"UserId: {reader.GetString("UserId")}");
-                            responseInfo.AppendLine($"QQId: {reader.GetString("QQId")}");
-                            responseInfo.AppendLine($"ShortId: {reader.GetString("ShortId")}");
-                            responseInfo.AppendLine($"SurveyVersion: {reader.GetString("SurveyVersion")}");
-                            responseInfo.AppendLine($"IsPushed: {reader.GetBoolean("IsPushed")}");
-                            responseInfo.AppendLine($"IsReviewed: {reader.GetBoolean("IsReviewed")}");
-                            responseInfo.AppendLine($"CreatedAt: {reader.GetDateTime("CreatedAt"):yyyy-MM-dd HH:mm:ss}");
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "[基本提交信息 RAW]\n" + responseInfo.ToString());
-                        }
-                        await using var voteConn = new MySqlConnection(connStr);
-                        await voteConn.OpenAsync(cancellationToken);
-                        const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
-                        await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
-                        voteCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
+                                break;
+                            }
 
-                        if (await voteReader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
-                            var voteInfo = $"""
+                        case "info-raw":
+                            {
+                                if (e is GroupMessage groupMsg)
+                                {
+                                    if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
+                                        return;
+                                    }
+                                }
+                                string responseId = args[2];
+                                if (responseId.Length < 10)
+                                {
+                                    var fullId = await GetFullResponseIdAsync(responseId);
+                                    if (string.IsNullOrWhiteSpace(fullId))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"[Raw 信息查询] 无法补全 ResponseId。请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    responseId = fullId;
+                                }
+
+                                await using var conn = new MySqlConnection(connStr);
+                                await conn.OpenAsync(cancellationToken);
+                                const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                                await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                                infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                                if (await reader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    var responseInfo = new StringBuilder();
+                                    responseInfo.AppendLine($"ResponseId: {reader.GetString("ResponseId")}");
+                                    responseInfo.AppendLine($"UserId: {reader.GetString("UserId")}");
+                                    responseInfo.AppendLine($"QQId: {reader.GetString("QQId")}");
+                                    responseInfo.AppendLine($"ShortId: {reader.GetString("ShortId")}");
+                                    responseInfo.AppendLine($"SurveyVersion: {reader.GetString("SurveyVersion")}");
+                                    responseInfo.AppendLine($"IsPushed: {reader.GetBoolean("IsPushed")}");
+                                    responseInfo.AppendLine($"IsReviewed: {reader.GetBoolean("IsReviewed")}");
+                                    responseInfo.AppendLine($"CreatedAt: {reader.GetDateTime("CreatedAt"):yyyy-MM-dd HH:mm:ss}");
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "[基本提交信息 RAW]\n" + responseInfo.ToString());
+                                }
+                                await using var voteConn = new MySqlConnection(connStr);
+                                await voteConn.OpenAsync(cancellationToken);
+                                const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
+                                await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
+                                voteCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
+
+                                if (await voteReader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
+                                    var voteInfo = $"""
                             [投票信息] {responseId[..8]}
                             赞成票数: {agreeCount}
                             反对票数: {denyCount}
@@ -482,245 +502,269 @@ namespace SurveyBackend
                             反对比例: {((agreeCount + denyCount) != 0 ? (denyCount / (agreeCount + denyCount)) : "无投票"):F2}
                             """;
 
-                            await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
 
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"[Raw 信息查询] 未找到指定的 Response Id \"{responseId}\"。");
-                        }
-                    }
-                    else if (args[1] == "vote")
-                    {
-                        // 发送帮助信息
-                        var errorMsg = new SendingMessage("投票指令格式错误。请使用 /survey vote <Response Id> [a|d]。\n================\n\n");
-                        await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
-                        return;
-                    }
-                    else if (args[1] == "trust")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            if (!long.TryParse(args[2], out long qqId))
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法将指定的用户添加到数据库中。请提供有效的 QQ 号。");
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"[Raw 信息查询] 未找到指定的 Response Id \"{responseId}\"。");
+                                }
+
+                                break;
                             }
-                            if (await TrustUser(qqId, cancellationToken))
+
+                        case "vote":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"用户 {qqId} 已成功添加到数据库中并受信。");
-                            }
-                            else
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法将用户 {qqId} 添加到数据库中。");
-                            }
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "ban")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            if (!long.TryParse(args[2], out long qqId))
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法将指定的用户添加到数据库中。请提供有效的 QQ 号。");
-                            }
-                            if (await BanUser(qqId, cancellationToken))
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"用户 {qqId} 已成功添加到数据库中并不再受信。");
-                            }
-                            else
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法将用户 {qqId} 添加到数据库中。");
-                            }
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "insight")
-                    {
-                        if (e is GroupMessage groupMsg)
-                        {
-                            if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
-                                return;
-                            }
-                            var responseId = await GetFullResponseIdAsync(args[2]);
-                            if (responseId is null)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                // 发送帮助信息
+                                var errorMsg = new SendingMessage("投票指令格式错误。请使用 /survey vote <Response Id> [a|d]。\n================\n\n");
+                                await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
                                 return;
                             }
 
-                            await using var conn = new MySqlConnection(connStr);
-                            await conn.OpenAsync(cancellationToken);
-                            const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
-                            await using var infoCmd = new MySqlCommand(infoQuery, conn);
-                            infoCmd.Parameters.AddWithValue("@responseId", responseId);
-                            await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
-                            if (await reader.ReadAsync(cancellationToken))
+                        case "trust":
                             {
-                                // 读取信息
-                                var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
-                                var msg = $"""
+                                if (isAdmin(e.UserId))
+                                {
+                                    if (!long.TryParse(args[2], out long qqId))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法将指定的用户添加到数据库中。请提供有效的 QQ 号。");
+                                    }
+                                    if (await TrustUser(qqId, cancellationToken))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"用户 {qqId} 已成功添加到数据库中并受信。");
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法将用户 {qqId} 添加到数据库中。");
+                                    }
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        case "ban":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    if (!long.TryParse(args[2], out long qqId))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法将指定的用户添加到数据库中。请提供有效的 QQ 号。");
+                                    }
+                                    if (await BanUser(qqId, cancellationToken))
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"用户 {qqId} 已成功添加到数据库中并不再受信。");
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法将用户 {qqId} 添加到数据库中。");
+                                    }
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        case "insight":
+                            {
+                                if (e is GroupMessage groupMsg)
+                                {
+                                    if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
+                                        return;
+                                    }
+                                    var responseId = await GetFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+
+                                    await using var conn = new MySqlConnection(connStr);
+                                    await conn.OpenAsync(cancellationToken);
+                                    const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                                    await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                                    infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                                    await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                                    if (await reader.ReadAsync(cancellationToken))
+                                    {
+                                        // 读取信息
+                                        var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
+                                        var msg = $"""
                                 {responseId}
                                 AI 见解
                                 以下内容由 AI 生成, 仅供参考:
                                 =================================
                                 {insight}
                                 """;
-                                await SendMessageWithAt(e.Endpoint, e.UserId, msg);
-                            }
-                        }
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, msg);
+                                    }
+                                }
 
-                    }
-                    else if (args[1] == "re-insight")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responseId = await GetFullResponseIdAsync(args[2]);
-                            if (responseId is null)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
-                                return;
+                                break;
                             }
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"即将重新生成 AI 见解并覆盖先前结果: {responseId}");
-                            await ReGenerateInsight(responseId, e);
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"已经重新生成 AI 见解并覆盖先前结果: {responseId}");
 
-                            await using var conn = new MySqlConnection(connStr);
-                            await conn.OpenAsync(cancellationToken);
-                            const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
-                            await using var infoCmd = new MySqlCommand(infoQuery, conn);
-                            infoCmd.Parameters.AddWithValue("@responseId", responseId);
-                            await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
-                            if (await reader.ReadAsync(cancellationToken))
+                        case "re-insight":
                             {
-                                // 读取信息
-                                var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
-                                var msg = $"""
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responseId = await GetFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"即将重新生成 AI 见解并覆盖先前结果: {responseId}");
+                                    await ReGenerateInsight(responseId, e);
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"已经重新生成 AI 见解并覆盖先前结果: {responseId}");
+
+                                    await using var conn = new MySqlConnection(connStr);
+                                    await conn.OpenAsync(cancellationToken);
+                                    const string infoQuery = "SELECT LLMInsight FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                                    await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                                    infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                                    await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                                    if (await reader.ReadAsync(cancellationToken))
+                                    {
+                                        // 读取信息
+                                        var insight = reader.IsDBNull("LLMInsight") ? "无" : reader.GetString("LLMInsight");
+                                        var msg = $"""
                                 {responseId}
                                 AI 见解
                                 以下内容由 AI 生成, 仅供参考:
                                 =================================
                                 {insight}
                                 """;
-                                await SendMessageWithAt(e.Endpoint, e.UserId, msg);
-                            }
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "delete")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responseId = await GetFullResponseIdAsync(args[2]);
-                            if (responseId is null)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            bool result = await ResponseTools.SoftDeleteResponse(responseId, _logger, connStr!);
-                            if (result)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已软删除 ResponseId {responseId}。");
-                            }
-                            else
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法软删除 ResponseId {responseId}。");
-                            }
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "restore")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responseId = await GetDeletedFullResponseIdAsync(args[2]);
-                            if (responseId is null)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            bool result = await ResponseTools.RestoreResponse(responseId, _logger, connStr!);
-                            if (result)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已恢复 ResponseId {responseId}。");
-                            }
-                            else
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法恢复 ResponseId {responseId}。");
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, msg);
+                                    }
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
                             }
 
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "hard-delete")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responseId = await GetFullResponseIdAsync(args[2]);
-                            if (responseId is null)
+                        case "delete":
                             {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            bool result = await ResponseTools.HardDeleteResponse(responseId, _logger, connStr!);
-                            if (result)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"已硬删除 ResponseId {responseId}。");
-                            }
-                            else
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法硬删除 ResponseId {responseId}。");
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responseId = await GetFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    bool result = await ResponseTools.SoftDeleteResponse(responseId, _logger, connStr!);
+                                    if (result)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"已软删除 ResponseId {responseId}。");
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法软删除 ResponseId {responseId}。");
+                                    }
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
                             }
 
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "qq")
-                    {
-                        var responseId = await ResponseTools.GetResponseIdOfQQId(args[2], _logger, connStr!);
-                        if (string.IsNullOrWhiteSpace(responseId))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"找不到用户 {args[2]} 的问卷回应记录。该用户可能还没有提交过问卷，或者该用户的问卷回应已被删除。");
-                            return;
-                        }
-                        var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
+                        case "restore":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responseId = await GetDeletedFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    bool result = await ResponseTools.RestoreResponse(responseId, _logger, connStr!);
+                                    if (result)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"已恢复 ResponseId {responseId}。");
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法恢复 ResponseId {responseId}。");
+                                    }
 
-                        await using var conn = new MySqlConnection(connStr);
-                        await conn.OpenAsync(cancellationToken);
-                        const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
-                        await using var infoCmd = new MySqlCommand(infoQuery, conn);
-                        infoCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
-                        if (await reader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            var responseInfo = $"""
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        case "hard-delete":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responseId = await GetFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    bool result = await ResponseTools.HardDeleteResponse(responseId, _logger, connStr!);
+                                    if (result)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"已硬删除 ResponseId {responseId}。");
+                                    }
+                                    else
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法硬删除 ResponseId {responseId}。");
+                                    }
+
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        case "qq":
+                            {
+                                var responseId = await ResponseTools.GetResponseIdOfQQId(args[2], _logger, connStr!);
+                                if (string.IsNullOrWhiteSpace(responseId))
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"找不到用户 {args[2]} 的问卷回应记录。该用户可能还没有提交过问卷，或者该用户的问卷回应已被删除。");
+                                    return;
+                                }
+                                var link = $"https://ltyyb.auntstudio.com/survey/entr/review?surveyId={responseId}";
+
+                                await using var conn = new MySqlConnection(connStr);
+                                await conn.OpenAsync(cancellationToken);
+                                const string infoQuery = "SELECT * FROM EntranceSurveyResponses WHERE ResponseId = @responseId LIMIT 1";
+                                await using var infoCmd = new MySqlCommand(infoQuery, conn);
+                                infoCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var reader = await infoCmd.ExecuteReaderAsync(cancellationToken);
+                                if (await reader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    var responseInfo = $"""
                             [基本提交信息] {responseId[..8]}
                             提交者: {reader.GetString("QQId")}
                             问卷版本: {reader.GetString("SurveyVersion")}
@@ -729,21 +773,21 @@ namespace SurveyBackend
 
                             审阅链接: {link}
                             """;
-                            await SendMessageWithAt(e.Endpoint, e.UserId, responseInfo);
-                        }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, responseInfo);
+                                }
 
-                        await using var voteConn = new MySqlConnection(connStr);
-                        await voteConn.OpenAsync(cancellationToken);
-                        const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
-                        await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
-                        voteCmd.Parameters.AddWithValue("@responseId", responseId);
-                        await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
+                                await using var voteConn = new MySqlConnection(connStr);
+                                await voteConn.OpenAsync(cancellationToken);
+                                const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
+                                await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
+                                voteCmd.Parameters.AddWithValue("@responseId", responseId);
+                                await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
 
-                        if (await voteReader.ReadAsync(cancellationToken))
-                        {
-                            // 读取信息
-                            int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
-                            var voteInfo = $"""
+                                if (await voteReader.ReadAsync(cancellationToken))
+                                {
+                                    // 读取信息
+                                    int agreeCount = voteReader.GetInt32("agreeCount"), denyCount = voteReader.GetInt32("denyCount");
+                                    var voteInfo = $"""
                             [投票信息] {responseId[..8]}
                             赞成票数: {agreeCount}
                             反对票数: {denyCount}
@@ -751,114 +795,130 @@ namespace SurveyBackend
                             赞成比例: {((agreeCount + denyCount) != 0 ? (agreeCount / (agreeCount + denyCount)) : "无投票"):F2}
                             """;
 
-                            await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"[QQ信息查询] 未找到指定的 Response Id \"{responseId}\"。");
-                        }
-
-                    }
-                    else if (args[1] == "disable")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            var responseId = await GetFullResponseIdAsync(args[2]);
-                            if (responseId is null)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
-                                return;
-                            }
-                            bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
-                            if (!result)
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, $"无法标记 ResponseId {responseId} 为 Disabled。");
-                                return;
-                            }
-                            await SendMessageWithAt(e.Endpoint, e.UserId, $"已将 ResponseId {responseId} 标记为 Disabled。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else if (args[1] == "stastics" || args[1] == "aggregator")
-                    {
-                        if (isAdmin(e.UserId))
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "该功能尚不稳定，请留意日志。");
-                            string[]? qFilter = null;
-                            if (args[2] == "[all]")
-                            {
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "将不设置过滤器以遍历获取所有题目。");
-                            }
-                            else
-                            {
-                                string filter = args[2];
-                                qFilter = filter.Split(',');
-                                var sb = new StringBuilder();
-                                for (int i = 0; i < qFilter.Length; i++)
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, voteInfo);
+                                }
+                                else
                                 {
-                                    if (i != qFilter.Length - 1)
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"[QQ信息查询] 未找到指定的 Response Id \"{responseId}\"。");
+                                }
+
+                                break;
+                            }
+
+                        case "disable":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    var responseId = await GetFullResponseIdAsync(args[2]);
+                                    if (responseId is null)
                                     {
-                                        sb.Append(qFilter[i] + ", ");
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "无法补全 ResponseId, 请检查 ShortId 是否正确。");
+                                        return;
+                                    }
+                                    bool result = await ResponseTools.DisableResponse(responseId, _logger, connStr!);
+                                    if (!result)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, $"无法标记 ResponseId {responseId} 为 Disabled。");
+                                        return;
+                                    }
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, $"已将 ResponseId {responseId} 标记为 Disabled。");
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
+                            }
+
+                        case "stastics":
+                        case "aggregator":
+                            {
+                                if (isAdmin(e.UserId))
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "该功能尚不稳定，请留意日志。");
+                                    string[]? qFilter = null;
+                                    if (args[2] == "[all]")
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "将不设置过滤器以遍历获取所有题目。");
                                     }
                                     else
                                     {
-                                        sb.Append(qFilter[i]);
+                                        string filter = args[2];
+                                        qFilter = filter.Split(',');
+                                        var sb = new StringBuilder();
+                                        for (int i = 0; i < qFilter.Length; i++)
+                                        {
+                                            if (i != qFilter.Length - 1)
+                                            {
+                                                sb.Append(qFilter[i] + ", ");
+                                            }
+                                            else
+                                            {
+                                                sb.Append(qFilter[i]);
+                                            }
+                                        }
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
                                     }
+
+                                    _ = RunAggregator(qFilter, e);
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
                                 }
-                                await SendMessageWithAt(e.Endpoint, e.UserId, "已应用的题目过滤器: " + sb.ToString());
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
+                                    return;
+                                }
+
+                                break;
                             }
 
-                                _ = RunAggregator(qFilter, e);
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "已提交请求。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限使用这一指令。");
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        // 发送帮助信息
-                        var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
-                        await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
-                        return;
+                        default:
+                            {
+                                // 发送帮助信息
+                                var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
+                                await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
+                                return;
+                            }
                     }
                 }
                 else if (args.Length == 4)
                 {
-                    if (args[1] == "vote")
+                    switch (args[1])
                     {
-                        var responseId = args[2];
-                        var vote = args[3].ToLowerInvariant();
-                        if (vote != "a" && vote != "d")
-                        {
-                            // 发送帮助信息
-                            var errorMsg = new SendingMessage("投票指令格式错误。请使用 /survey vote <Response Id> [a|d]。\n================\n\n");
-                            await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
-                            return;
-                        }
+                        case "vote":
+                            {
+                                var responseId = args[2];
+                                var vote = args[3].ToLowerInvariant();
+                                if (vote != "a" && vote != "d")
+                                {
+                                    // 发送帮助信息
+                                    var errorMsg = new SendingMessage("投票指令格式错误。请使用 /survey vote <Response Id> [a|d]。\n================\n\n");
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
+                                    return;
+                                }
 
-                        bool succ = await ProcessVoteCommand(e, responseId, vote == "a", cancellationToken);
-                        if (succ)
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "[投票处理] 投票已处理。");
-                        }
-                        else
-                        {
-                            await SendMessageWithAt(e.Endpoint, e.UserId, "[投票处理] 投票处理失败。可能未正常记录结果，请告知管理员。");
-                        }
-                    }
-                    else
-                    {
-                        // 发送帮助信息
-                        var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
-                        await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
-                        return;
+                                bool succ = await ProcessVoteCommand(e, responseId, vote == "a", cancellationToken);
+                                if (succ)
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "[投票处理] 投票已处理。");
+                                }
+                                else
+                                {
+                                    await SendMessageWithAt(e.Endpoint, e.UserId, "[投票处理] 投票处理失败。可能未正常记录结果，请告知管理员。");
+                                }
+
+                                break;
+                            }
+
+                        default:
+                            {
+                                // 发送帮助信息
+                                var errorMsg = new SendingMessage("未知的指令。\n================\n\n");
+                                await SendMessageWithAt(e.Endpoint, e.UserId, errorMsg + _helpText);
+                                return;
+                            }
                     }
                 }
                 else
