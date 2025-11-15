@@ -2,7 +2,7 @@ name: Auto Version C# Project
 
 on:
   push:
-    branches: ["main"]
+    branches: ["v3-dev"]
 
 jobs:
   build:
