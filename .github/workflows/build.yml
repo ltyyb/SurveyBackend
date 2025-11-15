@@ -1,0 +1,86 @@
+name: Auto Build & Version C# Project
+
+on:
+  push:
+    branches: ["v3-dev"]
+
+permissions:
+  contents: write
+
+jobs:
+  versioning:
+    runs-on: ubuntu-latest
+    outputs:
+      final_version: ${{ steps.final.outputs.final_version }}
+      base_version: ${{ steps.version.outputs.base_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read and bump version
+        id: version
+        run: |
+          ver=$(cat version.txt)
+          IFS='.' read -r major minor patch <<< "$ver"
+          patch=$((patch + 1))
+          base="$major.$minor.$patch"
+          echo "base_version=$base" >> $GITHUB_OUTPUT
+
+      - name: Get commit short hash
+        id: hash
+        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Compose final version
+        id: final
+        run: |
+          echo "final_version=${{ steps.version.outputs.base_version }}+${{ steps.hash.outputs.hash }}" >> $GITHUB_OUTPUT
+
+      - name: Write back version file
+        run: echo "${{ steps.version.outputs.base_version }}" > version.txt
+
+      - name: Update csproj version
+        run: |
+          # enable globstar if available (bash)
+          shopt -s globstar || true
+          for file in **/*.csproj; do
+            sed -i "s#<Version>.*</Version>#<Version>${{ steps.final.outputs.final_version }}</Version>#g" "$file"
+            sed -i "s#<AssemblyVersion>.*</AssemblyVersion>#<AssemblyVersion>${{ steps.version.outputs.base_version }}.0</AssemblyVersion>#g" "$file"
+            sed -i "s#<FileVersion>.*</FileVersion>#<FileVersion>${{ steps.version.outputs.base_version }}.0</FileVersion>#g" "$file"
+          done
+
+      - name: Commit changes
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "Auto bump version to ${{ steps.final.outputs.final_version }}" || echo "No changes"
+          git push
+
+  build:
+    needs: versioning
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux-x64, win-x64]
+        arch: [x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build self-contained executable
+        run: |
+          dotnet publish -c Release \
+            -r ${{ matrix.os }} \
+            --self-contained true \
+            /p:PublishSingleFile=true \
+            /p:IncludeAllContentForSelfExtract=true \
+            /p:Version=${{ needs.versioning.outputs.final_version }} \
+            -o ./publish/${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Archive build
+        run: |
+          zip -r SurveyBackend-${{ needs.versioning.outputs.final_version }}-${{ matrix.os }}-${{ matrix.arch }}.zip ./publish/${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: SurveyBackend-${{ needs.versioning.outputs.final_version }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: SurveyBackend-${{ needs.versioning.outputs.final_version }}-${{ matrix.os }}-${{ matrix.arch }}.zip
