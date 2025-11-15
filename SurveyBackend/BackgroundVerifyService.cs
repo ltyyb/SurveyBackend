@@ -100,8 +100,8 @@ namespace SurveyBackend
                     return;
                 }
                 _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
-                // 针对每一个未推送的问卷响应，尝试验证
-                foreach (var (responseId, userId, qqId) in responses)
+                // 针对每一个未审核的问卷响应，尝试验证
+                foreach (var (responseId, qqId, userId) in responses)
                 {
                     await using var voteConn = new MySqlConnection(_connStr);
                     await voteConn.OpenAsync(cancellationToken);
@@ -145,7 +145,7 @@ namespace SurveyBackend
                                 await using var updateUserCmd = new MySqlCommand(updateUserQuery, userConnection);
                                 updateUserCmd.Parameters.AddWithValue("@userId", userId);
                                 var userAffected = await updateUserCmd.ExecuteNonQueryAsync(cancellationToken);
-                                if (affected == 0)
+                                if (userAffected == 0)
                                 {
                                     _logger.LogWarning("用户 {userId} 问卷响应 {ResponseId} 审核通过，但无法更新 QQUsers.IsVerified 标记，请务必手动处理此问题！！", userId, responseId);
                                 }
