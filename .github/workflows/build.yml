@@ -69,9 +69,7 @@ jobs:
         run: |
           dotnet publish -c Release \
             -r ${{ matrix.os }} \
-            --self-contained true \
-            /p:PublishSingleFile=true \
-            /p:IncludeAllContentForSelfExtract=true \
+            --self-contained false \
             /p:Version=${{ needs.versioning.outputs.final_version }} \
             -o ./publish/${{ matrix.os }}-${{ matrix.arch }}
 
