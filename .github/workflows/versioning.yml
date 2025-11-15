@@ -1,0 +1,59 @@
+name: Auto Version C# Project
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # 1. 读取并 patch+1
+    - name: Read and bump version
+      id: version
+      run: |
+        ver=$(cat version.txt)
+        IFS='.' read -r major minor patch <<< "$ver"
+        patch=$((patch + 1))
+        base="$major.$minor.$patch"
+        echo "base_version=$base" >> $GITHUB_OUTPUT
+
+    # 2. commit hash（前7位）
+    - name: Get commit short hash
+      id: hash
+      run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+    # 3. 合成最终版本号：base+commit
+    - name: Compose final version
+      id: final
+      run: |
+        echo "final_version=${{ steps.version.outputs.base_version }}+${{ steps.hash.outputs.hash }}" >> $GITHUB_OUTPUT
+
+    # 4. 更新 version.txt（不含 commit hash）
+    - name: Write back version file
+      run: echo "${{ steps.version.outputs.base_version }}" > version.txt
+
+    # 5. 注入到所有 csproj
+    - name: Update csproj version
+      run: |
+        for file in **/*.csproj; do
+          sed -i "s#<Version>.*</Version>#<Version>${{ steps.final.outputs.final_version }}</Version>#g" "$file"
+          sed -i "s#<AssemblyVersion>.*</AssemblyVersion>#<AssemblyVersion>${{ steps.version.outputs.base_version }}.0</AssemblyVersion>#g" "$file"
+          sed -i "s#<FileVersion>.*</FileVersion>#<FileVersion>${{ steps.version.outputs.base_version }}.0</FileVersion>#g" "$file"
+        done
+
+    # 6. Commit version bump（忽略无变化）
+    - name: Commit changes
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add .
+        git commit -m "Auto bump version to ${{ steps.final.outputs.final_version }}" || echo "No changes"
+        git push
+
+    # 7. Build
+    - name: Build
+      run: dotnet build --configuration Release
