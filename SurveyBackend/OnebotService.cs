@@ -46,8 +46,10 @@ namespace SurveyBackend
             Using ASP.NET Core & Sisters.WudiLib
             -
             Developed by Aunt_nuozhen with ❤
-            后端版本: {Assembly.GetExecutingAssembly()
-            .GetName().Version?.ToString() ?? "未知"}
+            后端版本: {Assembly
+                    .GetExecutingAssembly()
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                    .InformationalVersion ?? "未知"}
             """;
         private readonly string _adminHelpText = """
                        管理员 | Survey Service 帮助
