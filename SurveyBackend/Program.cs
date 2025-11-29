@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SurveyBackend.Controllers;
 namespace SurveyBackend
 {
@@ -11,7 +12,17 @@ namespace SurveyBackend
             builder.Services.AddControllers();
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
+            var conn = builder.Configuration.GetConnectionString("DefaultConnection");
+            // 根据你 RDS 的 MySQL 版本设置 ServerVersion，如 8.0.33
+            var serverVersion = new MySqlServerVersion(new Version(8, 0, 33));
 
+            builder.Services.AddDbContextPool<MainDbContext>(options =>
+                options.UseMySql(conn, serverVersion, mySqlOptions =>
+                {
+                    
+                    // provider-specific options...
+                })
+            );
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", builder =>
