@@ -12,6 +12,8 @@ namespace SurveyBackend.Models
         public DbSet<User> Users { get; set; }
         public DbSet<Questionnaire> Questionnaires { get; set; }
         public DbSet<Submission> Submissions { get; set; }
+        public DbSet<ReviewSubmissionData> ReviewSubmissions { get; set; }
+        public DbSet<ReviewVote> ReviewVotes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -47,6 +49,8 @@ namespace SurveyBackend.Models
                       .IsRequired();
                 entity.Property(x => x.UniquePerUser)
                       .IsRequired();
+                entity.Property(x => x.ReleaseDate)
+                      .IsRequired();
                 entity.Property(x => x.SurveyJson)
                       .IsRequired();
             });
@@ -60,16 +64,47 @@ namespace SurveyBackend.Models
                       .HasMaxLength(16);
                 entity.Property(x => x.ShortSubmissionId)
                       .HasMaxLength(8);
-                entity.Property(x => x.QuestionnaireId)
-                      .HasMaxLength(8)
+                entity.Property(x => x.Questionnaire)
                       .IsRequired();
                 entity.Property(x => x.User)
                       .IsRequired();
                 entity.Property(x => x.CreatedAt)
                       .IsRequired();
+                entity.Property(x => x.IsDisabled)
+                      .IsRequired();
                 entity.Property(x => x.SurveyData)
                       .IsRequired();
-                entity.HasIndex(x => x.QuestionnaireId);
+                entity.HasIndex(x => x.User);
+            });
+
+            // 配置 需审核提交表 实体
+            modelBuilder.Entity<ReviewSubmissionData>(entity =>
+            {
+                entity.ToTable("review_submissions");
+                entity.HasKey(x => x.ReviewSubmissionDataId);
+                entity.Property(x => x.ReviewSubmissionDataId)
+                      .HasMaxLength(16);
+                entity.Property(x => x.Submission)
+                      .IsRequired();
+                entity.Property(x => x.Status)
+                      .IsRequired();
+                entity.Property(x => x.AIInsights);
+                entity.HasIndex(x => x.Submission);
+            });
+
+            // 配置 审核投票表 实体
+            modelBuilder.Entity<ReviewVote>(entity =>
+            {
+                entity.ToTable("review_votes");
+                entity.Property(x => x.ReviewSubmissionData)
+                      .IsRequired();
+                entity.Property(x => x.User)
+                      .IsRequired();
+                entity.Property(x => x.VoteType)
+                      .IsRequired();
+                entity.Property(x => x.VoteTime)
+                      .IsRequired();
+                entity.HasIndex(x => x.ReviewSubmissionData);
             });
 
             base.OnModelCreating(modelBuilder);
