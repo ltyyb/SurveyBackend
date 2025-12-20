@@ -6,7 +6,7 @@
 
 > [!TIP]
 > 我们计划从 `v3` 起支持更完善的多问卷支持及更多拓展功能。
-> 前往 [`v3-dev`](https://github.com/ltyyb/SurveyBackend/tree/v3-dev) 分支查看我们的最新进展~！
+> 前往 [`dev`](https://github.com/ltyyb/SurveyBackend/tree/dev) 分支查看我们的最新进展~！
 
 基于 ASP.NET Core 9.0 。与前端连接部分提供问卷题目的读取和问卷结果的提交接口等，并与群内机器人联动，实现自动推送问卷、众审投票等功能。详见[审核流程参照](#审核流程参照)。
 
