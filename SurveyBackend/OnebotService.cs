@@ -136,7 +136,7 @@ namespace SurveyBackend
                 listener.MessageEvent += async (api, e) =>
                 {
                     LastMessageTime = DateTime.Now;
-                    if (e.Content.Text.Trim().StartsWith("survey", StringComparison.InvariantCultureIgnoreCase))
+                    if (e.Content.Text.Trim().StartsWith("/survey", StringComparison.InvariantCultureIgnoreCase))
                     {
                         _logger.LogInformation("Get survey cmd"); 
                         await SurveyCmdProcesser(e, stoppingToken);
