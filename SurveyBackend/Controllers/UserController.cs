@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SurveyBackend.Models;
 
 namespace SurveyBackend.Controllers
@@ -28,7 +29,9 @@ namespace SurveyBackend.Controllers
         [HttpGet("request/{id}")]
         public async Task<ActionResult<object>> GetUserIdFromRequestId(string id)
         {
-            var request = await _db.Requests.FindAsync(id);
+            var request = await _db.Requests.Where(r => r.RequestType == RequestType.SurveyAccess)
+                                            .Select(r => r.RequestId == id ? r : null)
+                                            .FirstOrDefaultAsync();
             if (request is null)
             {
                 return NotFound(new
