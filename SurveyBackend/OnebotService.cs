@@ -4,6 +4,7 @@ using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
 using Sisters.WudiLib.WebSocket.Reverse;
+using SurveyBackend.Models;
 using System.Data;
 using System.Reflection;
 using System.Text;
@@ -72,17 +73,19 @@ namespace SurveyBackend
         private readonly ILogger<OnebotService> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
+        private readonly MainDbContext _db;
         private string? connStr;
         private bool isDisabled = false;
         private HttpApiClient? onebotApi = null;
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
-        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration)
+        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration, MainDbContext db)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
             _configuration = configuration;
+            _db = db;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)

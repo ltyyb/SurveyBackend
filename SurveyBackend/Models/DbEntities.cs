@@ -129,15 +129,21 @@ namespace SurveyBackend.Models
             VoteType = voteType;
         }
     }
-
+    
+    public enum RequestType
+    {
+        SurveyAccess = 0
+    }
     public class Request
     {
         public string RequestId { get; set; } = Nanoid.Generate(size: 16);
+        public RequestType RequestType { get; set; }
         public User User { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public Request(User user)
+        public Request(User user, RequestType requestType)
         {
             User = user;
+            RequestType = requestType;
         }
     }
 
