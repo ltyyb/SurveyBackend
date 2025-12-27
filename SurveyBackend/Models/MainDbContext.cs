@@ -114,8 +114,6 @@ namespace SurveyBackend.Models
                 entity.HasKey(x => x.RequestId);
                 entity.Property(x => x.RequestId)
                       .HasMaxLength(16);
-                entity.Property(x => x.RequestType)
-                      .IsRequired();
                 entity.Property(x => x.User)
                       .IsRequired();
                 entity.Property(x => x.CreatedAt)
