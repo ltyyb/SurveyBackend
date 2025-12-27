@@ -14,6 +14,7 @@ namespace SurveyBackend.Models
         public DbSet<Submission> Submissions { get; set; }
         public DbSet<ReviewSubmissionData> ReviewSubmissions { get; set; }
         public DbSet<ReviewVote> ReviewVotes { get; set; }
+        public DbSet<Request> Requests { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -105,6 +106,18 @@ namespace SurveyBackend.Models
                 entity.Property(x => x.VoteTime)
                       .IsRequired();
                 entity.HasIndex(x => x.ReviewSubmissionData);
+            });
+
+            modelBuilder.Entity<Request>(entity =>
+            {
+                entity.ToTable("requests");
+                entity.HasKey(x => x.RequestId);
+                entity.Property(x => x.RequestId)
+                      .HasMaxLength(16);
+                entity.Property(x => x.User)
+                      .IsRequired();
+                entity.Property(x => x.CreatedAt)
+                      .IsRequired();
             });
 
             base.OnModelCreating(modelBuilder);

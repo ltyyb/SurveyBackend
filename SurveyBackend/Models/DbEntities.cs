@@ -130,4 +130,15 @@ namespace SurveyBackend.Models
         }
     }
 
+    public class Request
+    {
+        public string RequestId { get; set; } = Nanoid.Generate(size: 16);
+        public User User { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public Request(User user)
+        {
+            User = user;
+        }
+    }
+
 }
