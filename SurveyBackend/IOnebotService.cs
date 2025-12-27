@@ -16,5 +16,6 @@ namespace SurveyBackend
         Task<SendMessageResponseData?> SendMessageWithAt(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, string message);
 
         Task<SendMessageResponseData?> SendMessageWithAt(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, SendingMessage message);
+        Task<SendMessageResponseData?> ReplyMessageWithAt(Sisters.WudiLib.Posts.Message fatherMessage, SendingMessage message);
     }
 }
