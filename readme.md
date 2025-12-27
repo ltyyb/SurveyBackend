@@ -2,99 +2,35 @@
 
 适用于厦门六中同安校区音游部的入群问卷调查后端。
 
+基于 ASP.NET Core 10.0 。与前端连接部分提供问卷题目的读取和问卷结果的提交接口等，并与群内机器人联动，实现自动推送问卷、众审投票等功能。详见[审核流程参照](#审核流程参照)。
+
+---
+
 此分支正在积极开发中~
 
-我们计划在这个分支开发 `v3` 版本，实现多问卷、自动管理数据库等更多拓展功能。
+我们计划在这个分支开发 `v3` 版本，实现多问卷，并使用 EF Core 改善数据库结构，同时实现更多拓展功能。
 
-> v3 开发过程中将由 Action 自动构建并管理版本号。
+> [!WARNING]
+> `v3` 版本预计所有接口与 `v2` 不再兼容，前端应注意迁移。
 
-基于 ASP.NET Core 9.0 。与前端连接部分提供问卷题目的读取和问卷结果的提交接口等，并与群内机器人联动，实现自动推送问卷、众审投票等功能。详见[审核流程参照](#审核流程参照)。
+> v3 开发过程中可能由 Action 自动构建并管理版本号。
+
 
 ## 数据库配置
 
-本项目使用 MySQL 作为数据库。你需要以下表: 
+本项目使用 MySQL 作为数据库。将由 EF Core 自动管理。 
 
-### 主要提交表 | `entrancesurveyresponses`
-
-```sql
-CREATE TABLE `entrancesurveyresponses` (
-  `ResponseId` varchar(50) NOT NULL COMMENT '随机分配的提交 ID',
-  `UserId` varchar(50) NOT NULL COMMENT '随机分配的 UserId',
-  `QQId` varchar(20) NOT NULL COMMENT '实际人员QQ号',
-  `ShortId` varchar(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT 'ResponseId 前 8 位',
-  `SurveyVersion` varchar(15) NOT NULL COMMENT '问卷版本号',
-  `SurveyAnswer` json NOT NULL COMMENT '问卷回答结果 Json',
-  `LLMInsight` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci COMMENT 'AI生成的见解',
-  `IsPushed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否推送到主群',
-  `IsDisabled` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否不可见',
-  `IsReviewed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已完成审核',
-  `CreatedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '提交时间',
-  PRIMARY KEY (`ResponseId`),
-  UNIQUE KEY `ShortId` (`ShortId`) USING BTREE,
-  KEY `QQId` (`QQId`),
-  KEY `userid` (`UserId`),
-  CONSTRAINT `qqid` FOREIGN KEY (`QQId`) REFERENCES `qqusers` (`QQId`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `userid` FOREIGN KEY (`UserId`) REFERENCES `qqusers` (`UserId`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='审核问卷提交存储表';
+请执行以下命令生成幂等迁移 SQL 指令:
+```bash
+dotnet ef migrations script --idempotent -o ./migrations.sql
 ```
-
-### 已删除问卷存档表 | `deletedentrsurveyresponses`
-
-```sql
-CREATE TABLE `deletedentrsurveyresponses` (
-  `ResponseId` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '随机分配的提交 ID',
-  `UserId` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '随机分配的 UserId',
-  `QQId` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '实际人员QQ号',
-  `ShortId` varchar(10) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT 'ResponseId 前 8 位',
-  `SurveyVersion` varchar(15) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '问卷版本号',
-  `SurveyAnswer` json NOT NULL COMMENT '问卷回答结果 Json',
-  `IsPushed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否推送到主群',
-  `IsReviewed` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否已完成审核',
-  `CreatedAt` datetime NOT NULL COMMENT '提交时间',
-  `DeletedAt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`ResponseId`),
-  UNIQUE KEY `del_entrancesurveyresponses_ShortId_IDX` (`ShortId`) USING BTREE,
-  KEY `qqid_copy` (`QQId`),
-  KEY `userid_copy` (`UserId`),
-  CONSTRAINT `qqid_copy` FOREIGN KEY (`QQId`) REFERENCES `qqusers` (`QQId`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `userid_copy` FOREIGN KEY (`UserId`) REFERENCES `qqusers` (`UserId`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='已删除的问卷相应记录表';
-```
-
-### 用户信息表 | `qqusers`
-
-```sql
-CREATE TABLE `qqusers` (
-  `UserId` varchar(50) NOT NULL COMMENT '随机分配的用户ID',
-  `QQId` varchar(20) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL COMMENT '实际人员QQ号',
-  `IsVerified` tinyint(1) NOT NULL DEFAULT '0' COMMENT '已验证可加主群',
-  PRIMARY KEY (`UserId`),
-  UNIQUE KEY `uq_qqid` (`QQId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COMMENT='UserId 与 QQ号 对照表'
-;
-```
-
-### 众审投票表 | `response_votes`
-
-```sql
-CREATE TABLE `response_votes` (
-  `responseId` varchar(50) NOT NULL,
-  `userId` varchar(50) NOT NULL,
-  `vote` enum('agree','deny') NOT NULL,
-  `voteTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`responseId`,`userId`),
-  KEY `userId` (`userId`),
-  CONSTRAINT `response_votes_ibfk_1` FOREIGN KEY (`responseId`) REFERENCES `entrancesurveyresponses` (`ResponseId`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `response_votes_ibfk_2` FOREIGN KEY (`userId`) REFERENCES `qqusers` (`UserId`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3
-;
-```
+再将 `./migrations.sql` 在你的 MySQL 数据库服务端执行。
 
 ## 配置文件
 
 你需要修改 `appsettings.json` 以配置数据库连接字符串等其它杂项配置。
 
-以下是配置文件详解，请在配置完毕后删除所有注释或参考仓库内的 `appsettings.json` [示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
+以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 `appsettings.json` [示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
 
 ```json
 {
@@ -147,32 +83,6 @@ CREATE TABLE `response_votes` (
 > 
 > 因此请在修改配置文件后重启程序。
 
-## 问卷包制作
-
-问卷包应是一个 `.psj` 后缀的 JSON 文件，包含问卷的多个版本。
-
-你可以使用附带的 `Utilities` 项目制作问卷包。具体请参考 [`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md) 。
-
-以下是一个示例问卷包的结构：
-
-```json
-{
-    "name": "这是一个示例问卷包",
-    "latestVer": "v1.0.0",
-    "surveys": {
-        "v1.0.0": {
-            "description": "v1.0.0 Stable",
-            "releaseDate": "1753810604",
-            "json": "{...Survey.js 格式的 JSON 字符串...}"
-        }
-    }
-}
-```
-
-其中指明了问卷包名称、最新版本号以及各版本的描述、发布日期和实际的问卷内容（Survey.js 格式的 JSON 字符串）。
-
-> [!WARNING]
-> 应始终使用 `Utilities` 项目制作问卷包，以避免兼容性问题。
 
 ## 审核流程参照
 
