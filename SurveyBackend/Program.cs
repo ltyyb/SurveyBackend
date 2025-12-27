@@ -39,7 +39,6 @@ namespace SurveyBackend
 
             var app = builder.Build();
 
-            SurveyPkgInstance? surveyPkg;
 
 
             // 初始化检查和 Load
