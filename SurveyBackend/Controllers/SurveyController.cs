@@ -199,6 +199,18 @@ namespace SurveyBackend.Controllers
                     return (false, null);
                 }
 
+                if (questionnaire.UniquePerUser)
+                {
+                    bool exists = await _db.Submissions
+                                        .AnyAsync(s => s.Questionnaire.QuestionnaireId == questionnaire.QuestionnaireId
+                                                       && s.User.UserId == user.UserId);
+                    if (exists)
+                    {
+                        _logger.LogWarning($"User {user.UserId} ({user.QQId}) already has a submission for questionnaire {questionnaire.QuestionnaireId}.");
+                        return (false, null);
+                    }
+                }
+
                 // 保存到 EF Core 数据库上下文
                 var submission = new Submission(questionnaire, answerJson, user);
                 _db.Submissions.Add(submission);

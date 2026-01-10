@@ -10,6 +10,7 @@ namespace SurveyBackend.Models
         public string UserId { get; set; } = Nanoid.Generate(size: 16);
 
         public string QQId { get; set; }
+        public bool IsVerified { get; set; } = false;
 
         public User(string qqId)
         {
@@ -31,17 +32,31 @@ namespace SurveyBackend.Models
         /// </summary>
         public bool UniquePerUser { get; set; }
         public bool NeedReview { get; set; }
+        public bool IsVerifyQuestionnaire { get; set; }
         public DateTime ReleaseDate { get; set; } = DateTime.UtcNow;
         /// <summary>
         /// 问卷的题面，遵循 Survey.js 相关规范
         /// </summary>
         public string SurveyJson { get; set; }
-        public Questionnaire(string friendlyName, string surveyJson, bool uniquePerUser = true, bool needReview = false)
+        public Questionnaire(string friendlyName, string surveyJson, bool uniquePerUser = true, bool needReview = false, bool isVerifyQuestionnaire = false)
         {
-            FriendlyName = friendlyName;
-            SurveyJson = surveyJson;
-            UniquePerUser = uniquePerUser;
-            NeedReview = needReview;
+            if (IsVerifyQuestionnaire)
+            {
+                FriendlyName = friendlyName;
+                SurveyJson = surveyJson;
+                UniquePerUser = true;
+                NeedReview = true;
+                IsVerifyQuestionnaire = true;
+            }
+            else
+            {
+                FriendlyName = friendlyName;
+                SurveyJson = surveyJson;
+                UniquePerUser = uniquePerUser;
+                NeedReview = needReview;
+                IsVerifyQuestionnaire = false;
+            }
+                
         }
     }
     /// <summary>
@@ -139,6 +154,7 @@ namespace SurveyBackend.Models
         public string RequestId { get; set; } = Nanoid.Generate(size: 16);
         public RequestType RequestType { get; set; }
         public User User { get; set; }
+        public bool IsDisabled { get; set; } = false;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public Request(User user, RequestType requestType)
         {

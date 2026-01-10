@@ -120,21 +120,17 @@ namespace SurveyBackend
                     mainLogger.LogError("OneBot WebSocket 端口配置错误, 无法转型。请前往 appsettings.json 检查 Bot:wsPort 配置项。");
                     return;
                 }
-                if (string.IsNullOrEmpty(app.Configuration["Survey:packedSurveyPath"]))
+
+                if (string.IsNullOrWhiteSpace(app.Configuration["API:Endpoint"]))
                 {
-                    mainLogger.LogError("问卷题目内容未配置。请前往 appsettings.json 配置 \"Survey:packedSurveyPath\" 为已打包问卷位置。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
+                    mainLogger.LogError("后端 API 端点未配置。请前往 appsettings.json 添加 API:Endpoint 配置项。");
                     return;
                 }
-                if (!File.Exists(app.Configuration["Survey:packedSurveyPath"]))
+                if (string.IsNullOrWhiteSpace(app.Configuration["API:SurveyLinkEndpoint"]))
                 {
-                    mainLogger.LogError($"问卷题目内容文件 {app.Configuration["Survey:packedSurveyPath"]} 不存在，请检查路径是否正确。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
+                    mainLogger.LogError("问卷链接端点未配置。请前往 appsettings.json 添加 API:SurveyLinkEndpoint 配置项。");
                     return;
                 }
-                surveyPkg = SurveyPkgInstance.LoadFromFile(app.Configuration["Survey:packedSurveyPath"]!, surveyLogger);
             }
 
             // Configure the HTTP request pipeline.

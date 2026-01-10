@@ -33,7 +33,8 @@ namespace SurveyBackend.Models
                 entity.Property(x => x.QQId)
                       .HasMaxLength(16)
                       .IsRequired();
-
+                entity.Property(x => x.IsVerified)
+                      .IsRequired();
                 entity.HasIndex(x => x.QQId)
                       .IsUnique();
             });
@@ -49,6 +50,10 @@ namespace SurveyBackend.Models
                       .HasMaxLength(100)
                       .IsRequired();
                 entity.Property(x => x.UniquePerUser)
+                      .IsRequired();
+                entity.Property(x => x.NeedReview)
+                      .IsRequired();
+                entity.Property(x => x.IsVerifyQuestionnaire)
                       .IsRequired();
                 entity.Property(x => x.ReleaseDate)
                       .IsRequired();
@@ -117,6 +122,8 @@ namespace SurveyBackend.Models
                 entity.Property(x => x.RequestType)
                       .IsRequired();
                 entity.Property(x => x.User)
+                      .IsRequired();
+                entity.Property(x => x.IsDisabled)
                       .IsRequired();
                 entity.Property(x => x.CreatedAt)
                       .IsRequired();

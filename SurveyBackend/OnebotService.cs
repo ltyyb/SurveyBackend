@@ -1,4 +1,5 @@
-﻿using MySqlConnector;
+﻿using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
@@ -9,7 +10,6 @@ using System.Data;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using static SurveyBackend.Controllers.SurveyController;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
@@ -87,10 +87,14 @@ namespace SurveyBackend
         private long verifyGroupId;
         private long adminId;
 
+        private string? apiEndpoint;
+        private string? surveyLinkEndpoint;
+
         private bool isDisabled = false;
 
         private HttpApiClient? onebotApi;
         private Questionnaire? defultQuestionnaire;
+        private Questionnaire verifyQuestionnaire;
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
@@ -101,13 +105,19 @@ namespace SurveyBackend
             _configuration = configuration;
             _db = db;
         }
-
+        
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("后台服务已启动");
+            _logger.LogInformation("Onebot 后台服务已启动, 正在初始化配置...");
 
 
             string accessToken = _configuration["Bot:accessToken"] ?? string.Empty;
+            apiEndpoint = _configuration["API:Endpoint"] ?? string.Empty;
+            surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"] ?? string.Empty;
+            // 统一端点格式
+            surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
+                                ? surveyLinkEndpoint
+                                : surveyLinkEndpoint + "/";
 
             // 配置文件检查，有异常直接提前返回
             #region 配置文件检查
@@ -156,8 +166,38 @@ namespace SurveyBackend
                 _logger.LogError("管理员QQ号配置无效，无法转型。请前往 appsettings.json 检查 Bot:adminId 配置项。");
                 return;
             }
+            if (string.IsNullOrWhiteSpace(apiEndpoint))
+            {
+                _logger.LogError("后端 API 端点未配置。请前往 appsettings.json 添加 API:Endpoint 配置项。");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(surveyLinkEndpoint))
+            {
+                _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 添加 API:SurveyLinkEndpoint 配置项。");
+                return;
+            }
+
             #endregion
 
+            // 获取 verifyQuestionnaire
+            var verifyQuestionnaires = await _db.Questionnaires
+                                            .Where(q => q.IsVerifyQuestionnaire)
+                                            .ToListAsync(stoppingToken);
+            if (verifyQuestionnaires.Count == 0)
+            {
+                _logger.LogError("未找到任何用于审核的问卷。请先在数据库中添加一份 IsVerifyQuestionnaire = true 的问卷。");
+                return;
+
+            }
+            else if (verifyQuestionnaires.Count > 1)
+            {
+                _logger.LogInformation("检测到多份用于审核的问卷，默认选择最新发布的问卷作为审核问卷。");
+            }
+            // 选择最新发布的问卷
+            verifyQuestionnaire = verifyQuestionnaires
+                                        .MaxBy(q => q.ReleaseDate)!;
+
+            
             var reverseWSServer = new ReverseWebSocketServer(wsPort);
             reverseWSServer.SetListenerAuthenticationAndConfiguration((listener, selfId) =>
             {
@@ -206,6 +246,7 @@ namespace SurveyBackend
                 };
             }, accessToken);
             reverseWSServer.Start(stoppingToken);
+            _logger.LogInformation("Onebot 后台服务配置初始化成功, 已启动反向 WebSocket 服务器。");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -236,7 +277,7 @@ namespace SurveyBackend
                     await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务当前不可用。后端服务可能正在维护。如有疑问请联系管理员。");
                     if (isAdmin(e.UserId))
                     {
-                        await SendMessageWithAt(e.Endpoint, e.UserId, "哦！您是高贵的管理！马上办~");
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "管理无视此限制。已忽略");
                     }
                     else return;
                 }
@@ -253,6 +294,45 @@ namespace SurveyBackend
                 {
                     switch (args[1])
                     {
+                        case "start":
+                            {
+                                if (e is GroupMessage groupMsg)
+                                {
+                                    if (groupMsg.GroupId != verifyGroupId)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
+                                        return;
+                                    }
+                                    var user = await _db.Users
+                                                    .Where(u => u.QQId == e.UserId.ToString())
+                                                    .SingleOrDefaultAsync(cancellationToken);
+                                    if (user is null)
+                                    {
+                                        _logger.LogInformation("用户 {qqId} 尚未注册，开始注册流程。", e.UserId);
+                                        var registerResult = await RegisterUser(e.UserId, cancellationToken);
+                                        if (registerResult.isSucc && registerResult.user is not null)
+                                        {
+                                            _logger.LogInformation("用户 {qqId} 注册成功", e.UserId);
+                                            user = registerResult.user;
+                                        }
+                                        else
+                                        {
+                                            _logger.LogError("用户 {qqId} 注册失败: {err}", e.UserId, registerResult.err);
+                                            await ReplyMessageWithAt(e, $"注册用户时出现异常。请@管理员。\n 原因: " + registerResult.err);
+                                            return;
+                                        }
+                                    }
+                                    if (user.IsVerified)
+                                    {
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您已通过审核，无需重复填写问卷。");
+                                        return;
+                                    }
+                                    var surveyLink = await GenerateSurveyLinkForUserAsync(user, verifyQuestionnaire, cancellationToken);
+                                    await ReplyMessageWithAt(e, $"""
+
+                                        """)
+                                }
+                            }
                         case "trust":
                             {
                                 if (e is GroupMessage groupMsg)
@@ -402,7 +482,7 @@ namespace SurveyBackend
                         case "get":
                             {
                                 var surveyId = args[2];
-                                bool flowControl = await ProcessGetCommand(e, surveyId);
+                                bool flowControl = await ProcessGetRequest(e, surveyId);
                                 if (!flowControl)
                                 {
                                     return;
@@ -981,25 +1061,98 @@ namespace SurveyBackend
 
         }
 
-        private async Task<bool> ProcessGetCommand(Message e, string surveyId)
+        private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire, CancellationToken cancellationToken)
         {
-            if (e is GroupMessage groupMsg)
+            var lastRequest = await _db.Requests.Where(r => r.User.UserId == user.UserId
+                                                && r.RequestType == RequestType.SurveyAccess
+                                                && !r.IsDisabled).ToListAsync(cancellationToken);
+            if (lastRequest.Count > 0)
             {
-                if (groupMsg.GroupId.ToString() != _configuration["Bot:verifyGroupId"])
+                foreach (var r in lastRequest)
                 {
-                    await SendMessageWithAt(e.Endpoint, e.UserId, "请在审核群中使用此命令。");
-                    return false;
+                    r.IsDisabled = true;
                 }
             }
-            if (string.IsNullOrWhiteSpace(surveyId))
+
+            var request = new Models.Request(user, RequestType.SurveyAccess);
+            _db.Requests.Add(request);
+            await _db.SaveChangesAsync(cancellationToken);
+
+            var link = $"{surveyLinkEndpoint}{questionnaire.QuestionnaireId}?requestId={request.RequestId}";
+            return link;
+        }
+
+        private async Task<(bool isSucc, string? err, User? user)> RegisterUser(long qqId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var existingUser = await _db.Users.FirstOrDefaultAsync(u => u.QQId == qqId.ToString(), cancellationToken);
+                if (existingUser is not null)
+                {
+                    return (true, null, existingUser);
+                }
+                var user = new User(qqId.ToString());
+                _db.Users.Add(user);
+                await _db.SaveChangesAsync();
+                return (true, null, user);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "注册用户时发生错误");
+                return (false, ex.Message, null);
+            }
+
+        }
+
+        private async Task<bool> ProcessGetRequest(Message e, string questionnaireId, User user)
+        {
+
+            if (string.IsNullOrWhiteSpace(questionnaireId))
             {
                 // 发送帮助信息
                 await SendMessage(e.Endpoint, _helpText);
                 return false;
             }
-
-            if (surveyId == "entr")
+            var questionnaire = await _db.Questionnaires.FindAsync(questionnaireId);
+            if (questionnaire is null)
             {
+                await ReplyMessageWithAt(e, "找不到指定的问卷，请检查 QuestionnaireID 是否正确。");
+                return false;
+            }
+
+            if (questionnaire.UniquePerUser)
+            {
+                bool exists = await _db.Submissions
+                                        .AnyAsync(s => s.Questionnaire.QuestionnaireId == questionnaire.QuestionnaireId
+                                                       && s.User.UserId == user.UserId);
+                if (exists)
+                {
+                    await ReplyMessageWithAt(e, "此问卷仅允许一次提交，您已提交过该问卷，无法再次获取。");
+                    return false;
+                }
+            }
+            
+
+            var link = $
+
+
+
+
+
+
+
+
+
+            if (questionnaireId == "entr")
+            {
+                if (e is GroupMessage groupMsg)
+                {
+                    if (groupMsg.GroupId.ToString() != _configuration["Bot:verifyGroupId"])
+                    {
+                        await SendMessageWithAt(e.Endpoint, e.UserId, "请在审核群中使用此命令。");
+                        return false;
+                    }
+                }
                 var qqId = e.UserId;
                 if (await IsVerifiedAsync(qqId.ToString()))
                 {
