@@ -1,4 +1,6 @@
-﻿using Message = Sisters.WudiLib.SendingMessage;
+﻿using Microsoft.EntityFrameworkCore;
+using System.Text;
+using Message = Sisters.WudiLib.SendingMessage;
 using MessageContext = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend.Models
@@ -23,9 +25,10 @@ namespace SurveyBackend.Models
     }
 
     // 命令注册器
-    public class CommandRegistry
+    public class SurveyCommandRegistry
     {
         private readonly Dictionary<string, ICommandHandler> _handlers = new(StringComparer.OrdinalIgnoreCase);
+        public const string CMD_PREFIX = "/survey";
 
         public void RegisterCommand(ICommandHandler handler)
         {
@@ -36,16 +39,30 @@ namespace SurveyBackend.Models
             }
         }
 
-        public bool TryExecuteCommand(string command, MessageContext context, out Message? response)
+        public bool TryExecuteSurveyCommand(string message, MessageContext context, out Message? response)
         {
-            var parts = command.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
+            var trimmedMessage = message.Trim();
+
+            // 检查是否以 /survey 开头
+            if (!trimmedMessage.StartsWith(CMD_PREFIX, StringComparison.OrdinalIgnoreCase))
             {
                 response = null;
                 return false;
             }
 
-            var cmdName = parts[0].TrimStart('/');
+            // 去掉前缀，获取实际命令
+            var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
+
+            // 如果只有前缀没有命令，显示帮助
+            if (string.IsNullOrWhiteSpace(commandContent))
+            {
+                response = GetHelpMessage();
+                return true;
+            }
+
+            // 拆分命令和参数
+            var parts = commandContent.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var cmdName = parts[0].ToLower();
             var args = parts.Skip(1).ToArray();
 
             if (_handlers.TryGetValue(cmdName, out var handler))
@@ -53,43 +70,78 @@ namespace SurveyBackend.Models
                 return handler.Execute(context, args, out response);
             }
 
-            response = new Message($"未知命令: {cmdName}，输入 /help 查看帮助");
+            // 如果命令不存在，显示帮助
+            response = GetHelpMessage($"未知命令: {cmdName}");
             return false;
         }
-        // 带权限控制的命令基类
-        public abstract class AdminOnlyCommand(string adminId) : CommandHandlerBase
-        {
-            public virtual string RequiredPermission => "user";
 
-            public bool HasPermission(MessageContext context)
+        private string GetHelpMessage(string? customMessage = null)
+        {
+            var helpBuilder = new StringBuilder();
+
+            if (!string.IsNullOrEmpty(customMessage))
             {
-                // 实现权限检查逻辑
-                if (RequiredPermission == "admin")
-                {
-                    // 检查是否是管理员
-                    return context.UserId.ToString() == adminId;
-                }
-                return true;
+                helpBuilder.AppendLine(customMessage);
+                helpBuilder.AppendLine();
             }
 
-            public override bool Execute(MessageContext context, string[] args, out Message response)
+            helpBuilder.AppendLine($"使用 {CMD_PREFIX} + 命令 来操作 SurveyBot");
+            helpBuilder.AppendLine("可用命令:");
+
+            foreach (var handler in _handlers.Values.Distinct())
             {
-                if (!HasPermission(context))
+                helpBuilder.AppendLine($"• {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                if (handler.Aliases.Length > 0)
                 {
-                    response = new Message("你没有使用这一指令的权限。");
-                    return false;
+                    helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
                 }
-                return ExecuteAuthorized(context, args, out response);
             }
 
-            protected abstract bool ExecuteAuthorized(MessageContext context, string[] args, out Message response);
+            helpBuilder.AppendLine($"\n示例: {CMD_PREFIX} help");
+
+            return helpBuilder.ToString();
         }
 
-        // 异步命令处理
-        public interface IAsyncCommandHandler
+        public IEnumerable<ICommandHandler> GetRegisteredCommands()
         {
-            Task<bool> ExecuteAsync(MessageContext context, string[] args, out Message response);
+            return _handlers.Values.Distinct();
         }
-
     }
+    // 带权限控制的命令基类
+
+    public abstract class AuthorizedCommand(MainDbContext _db) : CommandHandlerBase
+    {
+        public virtual UserGroup[] RequiredPermission => [UserGroup.SuperAdmin, UserGroup.Admin];
+        public bool HasPermission(MessageContext context)
+        {
+            UserGroup userGroup;
+            // 实现权限检查逻辑
+            var user = _db.Users.Where(u => u.QQId == context.UserId.ToString())
+                                .SingleOrDefault();
+            userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
+
+            return RequiredPermission.Contains(userGroup);
+        }
+
+
+
+        public override bool Execute(MessageContext context, string[] args, out Message response)
+        {
+            if (!HasPermission(context))
+            {
+                response = new Message("你没有使用这一指令的权限。");
+                return false;
+            }
+            return ExecuteAuthorized(context, args, out response);
+        }
+
+        protected abstract bool ExecuteAuthorized(MessageContext context, string[] args, out Message response);
+    }
+
+    // 异步命令处理
+    public interface IAsyncCommandHandler
+    {
+        Task<bool> ExecuteAsync(MessageContext context, string[] args, out Message response);
+    }
+
 }

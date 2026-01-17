@@ -322,9 +322,9 @@ namespace SurveyBackend
                                             return;
                                         }
                                     }
-                                    if (user.IsVerified)
+                                    if (user.UserGroup != UserGroup.NewComer)
                                     {
-                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您已通过审核，无需重复填写问卷。");
+                                        await SendMessageWithAt(e.Endpoint, e.UserId, "您已通过审核或为待定身份组，无需重复填写问卷。");
                                         return;
                                     }
                                     var surveyLink = await GenerateSurveyLinkForUserAsync(user, verifyQuestionnaire, cancellationToken);
@@ -1922,9 +1922,10 @@ namespace SurveyBackend
             return await onebotApi.SendPrivateMessageAsync(qqId, message);
         }
 
-        public async Task<SendMessageResponseData?> ReplyMessageWithAt(Sisters.WudiLib.Posts.Message fatherMessage, SendingMessage message)
+        public async Task<SendMessageResponseData?> ReplyMessageWithAt(Message fatherMessage, SendingMessage message)
         {
-            return await SendMessageWithAt(fatherMessage.Endpoint, fatherMessage.UserId, message);
+            var replyMsg = new SendingMessage($"[CQ:reply,id={fatherMessage.MessageId}]");
+            return await SendMessageWithAt(fatherMessage.Endpoint, fatherMessage.UserId, replyMsg + message);
         }
         #endregion
     }

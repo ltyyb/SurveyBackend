@@ -33,7 +33,7 @@ namespace SurveyBackend.Models
                 entity.Property(x => x.QQId)
                       .HasMaxLength(16)
                       .IsRequired();
-                entity.Property(x => x.IsVerified)
+                entity.Property(x => x.UserGroup)
                       .IsRequired();
                 entity.HasIndex(x => x.QQId)
                       .IsUnique();

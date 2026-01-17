@@ -3,6 +3,17 @@
 namespace SurveyBackend.Models
 {
     /// <summary>
+    /// 用户身份组
+    /// </summary>
+    public enum UserGroup
+    {
+        NewComer = 0,
+        PendingUser = 1,
+        VerifiedUser = 2,
+        Admin = 99,
+        SuperAdmin = 100
+    }
+    /// <summary>
     /// 用户实体类
     /// </summary>
     public class User
@@ -10,7 +21,7 @@ namespace SurveyBackend.Models
         public string UserId { get; set; } = Nanoid.Generate(size: 16);
 
         public string QQId { get; set; }
-        public bool IsVerified { get; set; } = false;
+        public UserGroup UserGroup { get; set; } = UserGroup.NewComer;
 
         public User(string qqId)
         {
