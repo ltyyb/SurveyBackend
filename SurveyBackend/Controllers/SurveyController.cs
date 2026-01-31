@@ -232,7 +232,7 @@ namespace SurveyBackend.Controllers
             }
         }
 
-        public async Task<bool> IsUserUnique(Questionnaire questionnaire, User user)
+        private async Task<bool> IsUserUnique(Questionnaire questionnaire, User user)
         {
             try
             {
