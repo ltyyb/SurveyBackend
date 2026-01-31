@@ -146,10 +146,6 @@ namespace SurveyBackend
 
 
             app.MapControllers();
-            Timer timer = new Timer(_ =>
-            {
-                surveyPkg?.Reload();
-            }, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
             app.Run();
 

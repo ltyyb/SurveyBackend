@@ -6,6 +6,7 @@ namespace SurveyBackend
     public interface IOnebotService
     {
         bool IsAvailable { get; }
+        HttpApiClient? onebotApi { get; }
         DateTime LastMessageTime { get; }
         Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, string message);
         Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, Sisters.WudiLib.Message message);

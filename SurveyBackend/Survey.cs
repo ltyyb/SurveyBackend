@@ -1,4 +1,6 @@
-﻿namespace SurveyBackend
+﻿using SurveyBackend.Models;
+
+namespace SurveyBackend
 {
     public class Survey
     {
@@ -34,22 +36,16 @@
             return specificJson;
         }
         /// <summary>
-        /// 使用 UserId 查询 QQ号, 替换占位符获得指定用户的客制化问卷 Json。
+        /// 使用 User 查询 QQ号, 替换占位符获得指定用户的客制化问卷 Json。
         /// </summary>
         /// <seealso cref="GetSpecificSurveyJsonByQQId(string)"/>
-        /// <param name="userId"></param>
+        /// <param name="user"></param>
         /// <param name="logger"></param>
         /// <param name="connStr"></param>
         /// <returns></returns>
-        public async Task<string?> GetSpecificSurveyJsonByUserId(string userId, ILogger logger, string connStr)
+        public async Task<string?> GetSpecificSurveyJsonByUserId(User user, ILogger logger, string connStr)
         {
-            var surveyUser = await SurveyUser.GetUserByIdAsync(userId, logger, connStr);
-            if (surveyUser is null || string.IsNullOrWhiteSpace(surveyUser.QQId))
-            {
-                logger.LogError("Failed to retrieve SurveyUser for UserId: {UserId}", userId);
-                return null;
-            }
-            string specificJson = GetSpecificSurveyJsonByQQId(surveyUser.QQId);
+            string specificJson = GetSpecificSurveyJsonByQQId(user.QQId);
             return specificJson;
         }
     }
