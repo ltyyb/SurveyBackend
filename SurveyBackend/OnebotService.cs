@@ -1,5 +1,4 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using MySqlConnector;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;

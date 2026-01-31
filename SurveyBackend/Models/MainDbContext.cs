@@ -1,5 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
-
+using MySql.EntityFrameworkCore.Extensions;
 
 namespace SurveyBackend.Models
 {
@@ -19,7 +19,7 @@ namespace SurveyBackend.Models
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // 全局设置默认 Collation
-            modelBuilder.UseCollation("utf8mb4_0900_ai_ci");
+            RelationalModelBuilderExtensions.UseCollation(modelBuilder, "utf8mb4_0900_ai_ci");
             modelBuilder.HasCharSet("utf8mb4");
 
             // 配置 用户表 实体

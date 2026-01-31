@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using SurveyBackend.Controllers;
 using SurveyBackend.Models;
 namespace SurveyBackend
@@ -14,11 +15,20 @@ namespace SurveyBackend
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
             var conn = builder.Configuration.GetConnectionString("DefaultConnection");
-
-            var serverVersion = new MySqlServerVersion(new Version(8, 0, 36));
+            if (string.IsNullOrEmpty(conn))
+            {
+                Console.WriteLine("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
+                Console.WriteLine("\n 按 Enter 退出");
+                Console.ReadLine();
+                return;
+            }
 
             builder.Services.AddDbContextPool<MainDbContext>(options =>
-                options.UseMySql(conn, serverVersion)
+                options.UseMySQL(conn, opt =>
+                {
+                    opt.CommandTimeout(60);
+                    opt.EnableRetryOnFailure(5);
+                })
             );
             builder.Services.AddCors(options =>
             {
