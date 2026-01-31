@@ -9,6 +9,7 @@ using System.Data;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
@@ -1975,8 +1976,8 @@ namespace SurveyBackend
 
         public async Task<SendMessageResponseData?> ReplyMessageWithAt(Message fatherMessage, SendingMessage message)
         {
-            var replyMsg = new SendingMessage($"[CQ:reply,id={fatherMessage.MessageId}]");
-            return await SendMessageWithAt(fatherMessage.Endpoint, fatherMessage.UserId, replyMsg + message);
+            var replySection = new Section("xml", ("id", fatherMessage.MessageId.ToString()));
+            return await SendMessageWithAt(fatherMessage.Endpoint, fatherMessage.UserId, new SendingMessage(replySection) + message);
         }
         #endregion
     }
