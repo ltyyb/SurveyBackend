@@ -232,7 +232,7 @@ namespace SurveyBackend.Controllers
             }
         }
 
-        public async Task<bool> IsUserUnique(Questionnaire questionnaire, User user)
+        private async Task<bool> IsUserUnique(Questionnaire questionnaire, User user)
         {
             try
             {
@@ -371,7 +371,7 @@ namespace SurveyBackend.Controllers
                 return false;
             }
         }
-        public string GetSpecificSurveyJson(Questionnaire questionnaire, User user)
+        private string GetSpecificSurveyJson(Questionnaire questionnaire, User user)
         {
             // 替换 SurveyJson 中的 {Specific_QQId} 占位符
             string originalJson = questionnaire.SurveyJson;
