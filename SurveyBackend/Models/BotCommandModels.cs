@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using System.Text;
 using Message = Sisters.WudiLib.SendingMessage;
 using MessageContext = Sisters.WudiLib.Posts.Message;
@@ -137,12 +137,14 @@ namespace SurveyBackend.Models
     }
     // 带权限控制的命令基类
 
-    public abstract class AuthorizedCommand(MainDbContext _db) : CommandHandlerBase
+    public abstract class AuthorizedCommand(IServiceScopeFactory _dbScopeFactory) : CommandHandlerBase
     {
         public virtual UserGroup[] RequiredPermission => [UserGroup.SuperAdmin, UserGroup.Admin];
         public bool HasPermission(MessageContext context)
         {
             UserGroup userGroup;
+            using var scope = _dbScopeFactory.CreateScope();
+            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
             var user = _db.Users.Where(u => u.QQId == context.UserId.ToString())
                                 .SingleOrDefault();
             userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
@@ -193,15 +195,17 @@ namespace SurveyBackend.Models
     // 带权限控制的异步命令基类
     public abstract class AuthorizedAsyncCommand : AsyncCommandHandlerBase
     {
-        private readonly MainDbContext _db;
-        public AuthorizedAsyncCommand(MainDbContext db)
+        private readonly IServiceScopeFactory _dbScopeFactory;
+        public AuthorizedAsyncCommand(IServiceScopeFactory dbScopeFactory)
         {
-            _db = db;
+            _dbScopeFactory = dbScopeFactory;
         }
         public virtual UserGroup[] RequiredPermission => [UserGroup.SuperAdmin, UserGroup.Admin];
         public async Task<bool> HasPermissionAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
             UserGroup userGroup;
+            using var scope = _dbScopeFactory.CreateScope();
+            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
             var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
                                 .SingleOrDefaultAsync(cancellationToken);
             userGroup = user is null ? UserGroup.NewComer : user.UserGroup;

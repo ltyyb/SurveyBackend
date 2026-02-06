@@ -81,7 +81,7 @@ namespace SurveyBackend
         private readonly ILogger<OnebotService> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
-        private readonly MainDbContext _db;
+        private readonly IServiceScopeFactory _scopeFactory;
 
         private long mainGroupId;
         private long verifyGroupId;
@@ -99,12 +99,12 @@ namespace SurveyBackend
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
-        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration, MainDbContext db)
+        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration, IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
             _configuration = configuration;
-            _db = db;
+            _scopeFactory = scopeFactory;
         }
         
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -199,8 +199,17 @@ namespace SurveyBackend
             //                             .MaxBy(q => q.ReleaseDate)!;
 
             // 注册指令
+            List<ICommandHandler> commandHandlers = new List<ICommandHandler>
+            {
+                new StartCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
+                new TrustCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>())
+            };
+            foreach (var handler in commandHandlers)
+            {
+                _commandRegistry.RegisterCommand(handler);
+            }
 
-            
+
             var reverseWSServer = new ReverseWebSocketServer(wsPort);
             reverseWSServer.SetListenerAuthenticationAndConfiguration((listener, selfId) =>
             {

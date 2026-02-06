@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 using Message = Sisters.WudiLib.SendingMessage;
 using MessageContext = Sisters.WudiLib.Posts.Message;
@@ -12,13 +12,13 @@ namespace SurveyBackend.Models
     {
         private readonly IConfiguration _configuration;
         private readonly IOnebotService _onebot;
-        private readonly MainDbContext _db;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<StartCommand> _logger;
-        public StartCommand(IConfiguration configuration, IOnebotService onebot, MainDbContext db, ILogger<StartCommand> logger)
+        public StartCommand(IConfiguration configuration, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<StartCommand> logger)
         {
             _configuration = configuration;
             _onebot = onebot;
-            _db = db;
+            _scopeFactory = scopeFactory;
             _logger = logger;
         }
         public override string CommandName => "start";
@@ -34,7 +34,9 @@ namespace SurveyBackend.Models
                                 : surveyLinkEndpoint + "/";
             if (context is GroupMessage groupMessage && groupMessage.GroupId.ToString() == verifyGroupId)
             {
-                var user = await _db.Users
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var user = await db.Users
                                                     .Where(u => u.QQId == context.UserId.ToString())
                                                     .SingleOrDefaultAsync(cancellationToken);
                 if (user is null)
@@ -59,7 +61,7 @@ namespace SurveyBackend.Models
                 }
 
                 // 获取 verifyQuestionnaire
-                var verifyQuestionnaires = await _db.Questionnaires
+                var verifyQuestionnaires = await db.Questionnaires
                                                 .Where(q => q.IsVerifyQuestionnaire)
                                                 .ToListAsync(cancellationToken);
                 if (verifyQuestionnaires.Count == 0)
@@ -96,7 +98,9 @@ namespace SurveyBackend.Models
 
         private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire, string? surveyLinkEndpoint, CancellationToken cancellationToken)
         {
-            var lastRequest = await _db.Requests.Where(r => r.User.UserId == user.UserId
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var lastRequest = await db.Requests.Where(r => r.User.UserId == user.UserId
                                                 && r.RequestType == RequestType.SurveyAccess
                                                 && !r.IsDisabled).ToListAsync(cancellationToken);
             if (lastRequest.Count > 0)
@@ -107,9 +111,13 @@ namespace SurveyBackend.Models
                 }
             }
 
-            var request = new Models.Request(user, RequestType.SurveyAccess);
-            _db.Requests.Add(request);
-            await _db.SaveChangesAsync(cancellationToken);
+            var request = new Request
+            {
+                User = user,
+                RequestType = RequestType.SurveyAccess
+            };
+            db.Requests.Add(request);
+            await db.SaveChangesAsync(cancellationToken);
 
             var link = $"{surveyLinkEndpoint}{questionnaire.QuestionnaireId}?requestId={request.RequestId}";
             return link;
@@ -119,14 +127,16 @@ namespace SurveyBackend.Models
         {
             try
             {
-                var existingUser = await _db.Users.SingleOrDefaultAsync(u => u.QQId == qqId.ToString(), cancellationToken);
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var existingUser = await db.Users.SingleOrDefaultAsync(u => u.QQId == qqId.ToString(), cancellationToken);
                 if (existingUser is not null)
                 {
                     return (true, null, existingUser);
                 }
-                var user = new User(qqId.ToString());
-                _db.Users.Add(user);
-                await _db.SaveChangesAsync(cancellationToken);
+                var user = new User { QQId = qqId.ToString() };
+                db.Users.Add(user);
+                await db.SaveChangesAsync(cancellationToken);
                 return (true, null, user);
             }
             catch (Exception ex)
@@ -147,14 +157,14 @@ namespace SurveyBackend.Models
 
         private readonly IConfiguration _configuration;
         private readonly IOnebotService _onebot;
-        private readonly MainDbContext _db;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<TrustCommand> _logger;
-        public TrustCommand(IConfiguration configuration, IOnebotService onebot, MainDbContext db, ILogger<TrustCommand> logger)
-            : base(db)
+        public TrustCommand(IConfiguration configuration, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<TrustCommand> logger)
+            : base(scopeFactory)
         {
             _configuration = configuration;
             _onebot = onebot;
-            _db = db;
+            _scopeFactory = scopeFactory;
             _logger = logger;
         }
 
@@ -208,27 +218,29 @@ namespace SurveyBackend.Models
             try
             {
                 _logger.LogInformation("正在将用户 {user} 注册到数据库中。", userQQId.ToString());
-
-                User? user = await _db.Users.Where(u => u.QQId == userQQId.ToString())
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                User? user = await db.Users.Where(u => u.QQId == userQQId.ToString())
                                             .SingleOrDefaultAsync(cancellationToken);
                 
                 if (user is null)
                 {
                     // 用户不存在，创建新用户
-                    user = new User(userQQId.ToString())
+                    user = new User
                     {
+                        QQId = userQQId.ToString(),
                         UserGroup = UserGroup.VerifiedUser
                     };
-                    _db.Users.Add(user);
-                    await _db.SaveChangesAsync(cancellationToken);
+                    db.Users.Add(user);
+                    await db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("用户 {qqId} 注册并设置为 VerifiedUser。", userQQId.ToString());
                 }
                 else if (user.UserGroup != UserGroup.VerifiedUser)
                 {
                     // 用户已存在，更新用户组
                     user.UserGroup = UserGroup.VerifiedUser;
-                    _db.Users.Update(user);
-                    await _db.SaveChangesAsync(cancellationToken);
+                    db.Users.Update(user);
+                    await db.SaveChangesAsync(cancellationToken);
                     _logger.LogInformation("用户 {qqId} 已存在，更新为 VerifiedUser。", userQQId.ToString());
                 }
                 return true;

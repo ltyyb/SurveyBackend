@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MySqlConnector;
@@ -120,7 +120,7 @@ namespace SurveyBackend.Controllers
                 if (submission.Questionnaire.NeedReview)
                 {
                     // 需要审核，创建审核数据记录
-                    var reviewSubmissionData = new ReviewSubmissionData(submission);
+                    var reviewSubmissionData = new ReviewSubmissionData { Submission = submission };
                     _db.ReviewSubmissions.Add(reviewSubmissionData);
                     await _db.SaveChangesAsync();
                     // 生成AI见解
@@ -212,7 +212,12 @@ namespace SurveyBackend.Controllers
                 }
 
                 // 保存到 EF Core 数据库上下文
-                var submission = new Submission(questionnaire, answerJson, user);
+                var submission = new Submission
+                {
+                    Questionnaire = questionnaire,
+                    SurveyData = answerJson,
+                    User = user
+                };
                 _db.Submissions.Add(submission);
                 // 同步更改
                 await _db.SaveChangesAsync();
