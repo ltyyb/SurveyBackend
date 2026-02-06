@@ -96,7 +96,8 @@ namespace SurveyBackend.Models
             return null;
         }
 
-        private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire, string? surveyLinkEndpoint, CancellationToken cancellationToken)
+        private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire, 
+                                                                  string? surveyLinkEndpoint, CancellationToken cancellationToken)
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -111,6 +112,7 @@ namespace SurveyBackend.Models
                 }
             }
 
+            db.Users.Attach(user);
             var request = new Request
             {
                 User = user,
@@ -208,7 +210,7 @@ namespace SurveyBackend.Models
                 }
                 else
                 {
-                    return CommandResponse.FailureResponse("❌ 本命令只能在主群中使用。");
+                    return CommandResponse.FailureResponse("❌ 安全起见，本命令只能在主群中使用。");
                 }
             }
             return null;

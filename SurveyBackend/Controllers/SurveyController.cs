@@ -208,7 +208,8 @@ namespace SurveyBackend.Controllers
                         return (false, null);
                     }
                 }
-
+                _db.Users.Attach(user);
+                _db.Questionnaires.Attach(questionnaire);
                 // 保存到 EF Core 数据库上下文
                 var submission = new Submission
                 {
