@@ -29,9 +29,8 @@ namespace SurveyBackend.Controllers
         [HttpGet("request/{id}")]
         public async Task<ActionResult<object>> GetUserIdFromRequestId(string id)
         {
-            var request = await _db.Requests.Where(r => r.RequestType == RequestType.SurveyAccess)
-                                            .Select(r => r.RequestId == id ? r : null)
-                                            .FirstOrDefaultAsync();
+            var request = await _db.Requests
+                                .FirstOrDefaultAsync(r => r.RequestId == id && r.RequestType == RequestType.SurveyAccess);
             if (request is null)
             {
                 return NotFound(new
@@ -46,7 +45,7 @@ namespace SurveyBackend.Controllers
             return Ok(new
             {
                 status = 0,
-                userId = request.User.UserId
+                userId = request.UserId
             });
         }
     }
