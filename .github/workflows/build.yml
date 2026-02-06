@@ -2,7 +2,7 @@ name: Auto Build & Version C# Project
 
 on:
   push:
-    branches: ["v3-dev"]
+    branches: ["dev"]
 
 permissions:
   contents: write
