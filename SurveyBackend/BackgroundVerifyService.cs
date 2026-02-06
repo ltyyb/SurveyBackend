@@ -1,5 +1,7 @@
-using MySqlConnector;
+
+using Microsoft.EntityFrameworkCore;
 using Sisters.WudiLib;
+using SurveyBackend.Models;
 using System.Data;
 
 namespace SurveyBackend
@@ -9,26 +11,17 @@ namespace SurveyBackend
         private readonly ILogger<BackgroundVerifyService> _logger;
         private readonly IOnebotService _onebot;
         private readonly IConfiguration _configuration;
-        private readonly string _connStr;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly long _mainGroupId;
         private readonly long _verifyGroupId;
         private readonly List<(string responseId, DateTime delTime)> responseClearList = [];
-        public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IConfiguration configuration)
+        public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IConfiguration configuration, IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _onebot = onebot;
             _configuration = configuration;
-            var connStr = _configuration.GetConnectionString("DefaultConnection");
+            _scopeFactory = scopeFactory;
 
-            if (string.IsNullOrWhiteSpace(connStr))
-            {
-                _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
-                _connStr = string.Empty;
-            }
-            else
-            {
-                _connStr = connStr;
-            }
 
             if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
             {
@@ -68,11 +61,7 @@ namespace SurveyBackend
                     _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
                     return;
                 }
-                if (string.IsNullOrWhiteSpace(_connStr))
-                {
-                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
-                    return;
-                }
+
                 if (!_onebot.IsAvailable)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
@@ -94,98 +83,55 @@ namespace SurveyBackend
         {
             try
             {
-                List<(string responseId, string qqId, string userId)>? responses = await ResponseTools.GetUnreviewedResponseList(_logger, _connStr);
-                if (responses is null)
+                using var scope = _scopeFactory.CreateScope();
+                var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+
+                List<ReviewSubmissionData> pendingSubmissions 
+                = await _db.ReviewSubmissions.Where(r => r.Status == ReviewStatus.Pending)
+                                             .Include(r => r.Submission)
+                                             .ThenInclude(s => s.User)
+                                             .ToListAsync(cancellationToken);
+                if (pendingSubmissions.Count > 0)
                 {
-                    return;
+                    _logger.LogInformation("共检测到 {Count} 条待审核的问卷提交", pendingSubmissions.Count);
                 }
-                _logger.LogInformation("共检测到 {Count} 条未完成审核的问卷响应", responses.Count);
-                // 针对每一个未审核的问卷响应，尝试验证
-                foreach (var (responseId, qqId, userId) in responses)
+                foreach (var reviewData in pendingSubmissions)
                 {
-                    await using var voteConn = new MySqlConnection(_connStr);
-                    await voteConn.OpenAsync(cancellationToken);
-                    const string voteQuery = "SELECT SUM(vote = 'agree') AS agreeCount, SUM(vote = 'deny') AS denyCount FROM response_votes WHERE responseId = @responseId";
-                    await using var voteCmd = new MySqlCommand(voteQuery, voteConn);
-                    voteCmd.Parameters.AddWithValue("@responseId", responseId);
-                    await using var voteReader = await voteCmd.ExecuteReaderAsync(cancellationToken);
-                    if (await voteReader.ReadAsync(cancellationToken))
+                    var submission = reviewData.Submission;
+                    var user = submission.User;
+                    _logger.LogInformation("正在审核 SubmissionId: {SubmissionId}, UserId: {UserId}", submission.SubmissionId, user.UserId);
+                    // 从 ReviewVote 表中获取该 submission 的投票情况
+                    var votes = await _db.ReviewVotes.Where(v => v.ReviewSubmissionDataId == reviewData.ReviewSubmissionDataId)
+                                                     .ToListAsync(cancellationToken);
+                    var agreeCount = votes.Count(v => v.VoteType == VoteType.Upvote);
+                    var denyCount = votes.Count(v => v.VoteType == VoteType.Downvote);
+                    if (agreeCount + denyCount < 5)
                     {
-                        var agreeCount = voteReader.IsDBNull("agreeCount") ? 0 : voteReader.GetInt32("agreeCount");
-                        var denyCount = voteReader.IsDBNull("denyCount") ? 0 : voteReader.GetInt32("denyCount");
-                        if (agreeCount + denyCount < 5)
-                        {
-                            _logger.LogInformation("问卷响应 {ResponseId} 的投票数不足，跳过审核。", responseId);
+                        _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足，跳过审核。", submission.SubmissionId);
+                        continue;
+                    }
+                    float agreeRate = (float)agreeCount / (agreeCount + denyCount);
+                    if (agreeRate > 0.6)
+                    {
+                        _logger.LogInformation("SubmissionId: {SubmissionId} 审核通过。", submission.SubmissionId);
+                        reviewData.Status = ReviewStatus.Approved;
+                        user.UserGroup = UserGroup.VerifiedUser;
+                        await _db.SaveChangesAsync(cancellationToken);
+                        var atMessage = SendingMessage.At(long.Parse(user.QQId));
+                        var message = $"""
 
-                        }
-                        else
-                        {
-                            float agreeRate = (float)agreeCount / (agreeCount + denyCount);
-                            if (agreeRate > 0.6)
-                            {
-                                _logger.LogInformation("问卷响应 {ResponseId} 审核通过。", responseId);
-                                // 更新数据库标记为已审核
-                                await using var connection = new MySqlConnection(_connStr);
-                                await connection.OpenAsync(cancellationToken);
-                                const string updateQuery = "UPDATE EntranceSurveyResponses SET IsReviewed = true WHERE ResponseId = @responseId";
-                                await using var updateCmd = new MySqlCommand(updateQuery, connection);
-                                updateCmd.Parameters.AddWithValue("@responseId", responseId);
-                                var affected = await updateCmd.ExecuteNonQueryAsync(cancellationToken);
-                                if (affected == 0)
-                                {
-                                    _logger.LogWarning("问卷响应 {ResponseId} 审核通过，但无法更新 IsReviewed 标记，请务必手动处理此问题！！", responseId);
-                                }
-                                else
-                                {
-                                    _logger.LogInformation("问卷响应 {ResponseId} 已标记为已审核。", responseId);
-                                }
-                                await using var userConnection = new MySqlConnection(_connStr);
-                                await userConnection.OpenAsync(cancellationToken);
-                                const string updateUserQuery = "UPDATE QQUsers SET IsVerified = true WHERE UserId = @userId";
-                                await using var updateUserCmd = new MySqlCommand(updateUserQuery, userConnection);
-                                updateUserCmd.Parameters.AddWithValue("@userId", userId);
-                                var userAffected = await updateUserCmd.ExecuteNonQueryAsync(cancellationToken);
-                                if (userAffected == 0)
-                                {
-                                    _logger.LogWarning("用户 {userId} 问卷响应 {ResponseId} 审核通过，但无法更新 QQUsers.IsVerified 标记，请务必手动处理此问题！！", userId, responseId);
-                                }
-                                else
-                                {
-                                    _logger.LogInformation("用户 {userId} ({qqid}) 已标记为已验证。", userId, qqId);
-                                    // 推送审核通过的消息
-                                    var atMessage = SendingMessage.At(long.Parse(qqId));
-                                    var message = $"""
-
-                                        ヾ(•ω•`)o 您的问卷回答已通过审核~
-                                        (≧∇≦)ﾉ 您现在可以向主群 {_mainGroupId} 发起加群请求，验证消息可任意填写~
-                                        """;
-                                    await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
-                                }
-                            }
-                            else
-                            {
-                                _logger.LogInformation("问卷响应 {ResponseId} 审核未通过。", responseId);
-                                // 更新数据库标记为已审核
-                                await using var connection = new MySqlConnection(_connStr);
-                                await connection.OpenAsync(cancellationToken);
-                                const string updateQuery = "UPDATE EntranceSurveyResponses SET IsReviewed = true WHERE ResponseId = @responseId";
-                                await using var updateCmd = new MySqlCommand(updateQuery, connection);
-                                updateCmd.Parameters.AddWithValue("@responseId", responseId);
-                                var affected = await updateCmd.ExecuteNonQueryAsync(cancellationToken);
-                                if (affected == 0)
-                                {
-                                    _logger.LogWarning("问卷响应 {ResponseId} 审核未通过，但无法更新 IsReviewed 标记，请务必手动处理此问题！！", responseId);
-                                }
-                                else
-                                {
-                                    _logger.LogInformation("问卷响应 {ResponseId} 已标记为已审核。", responseId);
-                                }
-
-                                responseClearList.Add((responseId, DateTime.Now.AddHours(24))); // 添加到清除列表
-
-                                // 推送审核未通过的消息
-                                var atMessage = SendingMessage.At(long.Parse(qqId));
-                                var message = $"""
+                            ヾ(•ω•`)o 您的问卷回答已通过审核~
+                            (≧∇≦)ﾉ 您现在可以向主群 {_mainGroupId} 发起加群请求，验证消息可任意填写~
+                            """;
+                        await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("SubmissionId: {SubmissionId} 审核未通过。", submission.SubmissionId);
+                        reviewData.Status = ReviewStatus.Rejected;
+                        await _db.SaveChangesAsync(cancellationToken);
+                        var atMessage = SendingMessage.At(long.Parse(user.QQId));
+                        var message = $"""
                                     
                                     w(ﾟДﾟ)w 您的问卷回答未通过审核欸
                                     (｡•́︿•̀｡) 请检查您的回答，确保符合群规要求。
@@ -194,17 +140,13 @@ namespace SurveyBackend
                                     并重新填写问卷。
                                     如果您有任何疑问，请联系管理员。
                                     """;
-                                await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
-
-                            }
-                        }
-
+                        await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
                     }
-                }
+                }                                               
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "在处理未审核问卷响应时发生异常。请检查数据库连接和查询语句。");
+                _logger.LogError(ex, "在处理未审核问卷响应时发生异常。请检查数据库连接。");
             }
         }
 
@@ -223,34 +165,27 @@ namespace SurveyBackend
                     _logger.LogInformation("没有过期的问卷响应需要清除。");
                     return;
                 }
-                _logger.LogInformation("开始清除 {Count} 条过期的问卷响应。", expiredResponses.Count);
-                await using (var connection = new MySqlConnection(_connStr))
+                _logger.LogInformation("开始删除 {Count} 条过期的问卷响应。", expiredResponses.Count);
+                using var scope = _scopeFactory.CreateScope();
+                var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                foreach (var response in expiredResponses)
                 {
-                    await connection.OpenAsync(cancellationToken);
-                    foreach (var response in expiredResponses)
+                    var submissionId = response.responseId;
+                    var submission = await _db.Submissions.FindAsync(submissionId, cancellationToken);
+                    if (submission is null)
                     {
-                        string responseId = response.responseId;
-                        const string deleteQuery = "DELETE FROM EntranceSurveyResponses WHERE ResponseId = @responseId";
-                        await using var command = new MySqlCommand(deleteQuery, connection);
-                        command.Parameters.AddWithValue("@responseId", responseId);
-                        var affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
-                        if (affectedRows > 0)
-                        {
-                            _logger.LogInformation("成功清除问卷响应 {ResponseId}。", responseId);
-                            // 从清除列表中移除已处理的响应
-                            responseClearList.Remove(response);
-                        }
-                        else
-                        {
-                            _logger.LogError("无法删除问卷响应 {ResponseId}。", responseId);
-                        }
+                        _logger.LogWarning("未找到 SubmissionId: {SubmissionId} 对应的提交记录，可能已被删除。", submissionId);
+                        continue;
                     }
+                    _db.Submissions.Remove(submission);
+                    await _db.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation("已删除 SubmissionId: {SubmissionId} 的问卷响应。", submissionId);
                 }
 
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "在清除过期问卷响应时发生异常。");
+                _logger.LogError(ex, "在删除过期问卷响应时发生异常。");
             }
         }
     }
