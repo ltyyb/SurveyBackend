@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using MySql.EntityFrameworkCore.Extensions;
 
 namespace SurveyBackend.Models
@@ -18,9 +18,7 @@ namespace SurveyBackend.Models
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // 全局设置默认 Collation
-            RelationalModelBuilderExtensions.UseCollation(modelBuilder, "utf8mb4_0900_ai_ci");
-            modelBuilder.HasCharSet("utf8mb4");
+            base.OnModelCreating(modelBuilder);
 
             // 配置 用户表 实体
             modelBuilder.Entity<User>(entity =>
@@ -68,19 +66,29 @@ namespace SurveyBackend.Models
                 entity.HasKey(x => x.SubmissionId);
                 entity.Property(x => x.SubmissionId)
                       .HasMaxLength(16);
-                entity.Property(x => x.ShortSubmissionId)
-                      .HasMaxLength(8);
-                entity.Property(x => x.Questionnaire)
+                entity.Ignore(x => x.ShortSubmissionId);
+                entity.Property(x => x.QuestionnaireId)
+                      .HasMaxLength(8)
                       .IsRequired();
-                entity.Property(x => x.User)
+                entity.Property(x => x.UserId)
+                      .HasMaxLength(16)
                       .IsRequired();
+                entity.HasOne(x => x.Questionnaire)
+                      .WithMany()
+                      .HasForeignKey(x => x.QuestionnaireId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(x => x.User)
+                      .WithMany()
+                      .HasForeignKey(x => x.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
                 entity.Property(x => x.CreatedAt)
                       .IsRequired();
                 entity.Property(x => x.IsDisabled)
                       .IsRequired();
                 entity.Property(x => x.SurveyData)
                       .IsRequired();
-                entity.HasIndex(x => x.User);
+                entity.HasIndex(x => x.UserId);
+                entity.HasIndex(x => x.QuestionnaireId);
             });
 
             // 配置 需审核提交表 实体
@@ -90,27 +98,44 @@ namespace SurveyBackend.Models
                 entity.HasKey(x => x.ReviewSubmissionDataId);
                 entity.Property(x => x.ReviewSubmissionDataId)
                       .HasMaxLength(16);
-                entity.Property(x => x.Submission)
+                entity.Property(x => x.SubmissionId)
+                      .HasMaxLength(16)
                       .IsRequired();
+                entity.HasOne(x => x.Submission)
+                      .WithMany()
+                      .HasForeignKey(x => x.SubmissionId)
+                      .OnDelete(DeleteBehavior.Restrict);
                 entity.Property(x => x.Status)
                       .IsRequired();
                 entity.Property(x => x.AIInsights);
-                entity.HasIndex(x => x.Submission);
+                entity.HasIndex(x => x.SubmissionId);
             });
 
             // 配置 审核投票表 实体
             modelBuilder.Entity<ReviewVote>(entity =>
             {
                 entity.ToTable("review_votes");
-                entity.Property(x => x.ReviewSubmissionData)
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.ReviewSubmissionDataId)
+                      .HasMaxLength(16)
                       .IsRequired();
-                entity.Property(x => x.User)
+                entity.Property(x => x.UserId)
+                      .HasMaxLength(16)
                       .IsRequired();
+                entity.HasOne(x => x.ReviewSubmissionData)
+                      .WithMany()
+                      .HasForeignKey(x => x.ReviewSubmissionDataId)
+                      .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(x => x.User)
+                      .WithMany()
+                      .HasForeignKey(x => x.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
                 entity.Property(x => x.VoteType)
                       .IsRequired();
                 entity.Property(x => x.VoteTime)
                       .IsRequired();
-                entity.HasIndex(x => x.ReviewSubmissionData);
+                entity.HasIndex(x => x.ReviewSubmissionDataId);
+                entity.HasIndex(x => x.UserId);
             });
 
             modelBuilder.Entity<Request>(entity =>
@@ -121,8 +146,13 @@ namespace SurveyBackend.Models
                       .HasMaxLength(16);
                 entity.Property(x => x.RequestType)
                       .IsRequired();
-                entity.Property(x => x.User)
+                entity.Property(x => x.UserId)
+                      .HasMaxLength(16)
                       .IsRequired();
+                entity.HasOne(x => x.User)
+                      .WithMany()
+                      .HasForeignKey(x => x.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);
                 entity.Property(x => x.IsDisabled)
                       .IsRequired();
                 entity.Property(x => x.CreatedAt)

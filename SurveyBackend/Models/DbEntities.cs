@@ -1,7 +1,8 @@
-﻿using NanoidDotNet;
+using NanoidDotNet;
 
 namespace SurveyBackend.Models
 {
+    using System.ComponentModel.DataAnnotations.Schema;
     /// <summary>
     /// 用户身份组
     /// </summary>
@@ -20,8 +21,12 @@ namespace SurveyBackend.Models
     {
         public string UserId { get; set; } = Nanoid.Generate(size: 16);
 
-        public string QQId { get; set; }
+        public required string QQId { get; set; }
         public UserGroup UserGroup { get; set; } = UserGroup.NewComer;
+        public User()
+        {
+
+        }
 
         public User(string qqId)
         {
@@ -37,7 +42,7 @@ namespace SurveyBackend.Models
         /// 问卷唯一标识符
         /// </summary>
         public string QuestionnaireId { get; set; } = Nanoid.Generate(size: 8);
-        public string FriendlyName { get; set; }
+        public required string FriendlyName { get; set; }
         /// <summary>
         /// 控制是否每个用户只能提交一次
         /// </summary>
@@ -48,7 +53,8 @@ namespace SurveyBackend.Models
         /// <summary>
         /// 问卷的题面，遵循 Survey.js 相关规范
         /// </summary>
-        public string SurveyJson { get; set; }
+        public required string SurveyJson { get; set; }
+        public Questionnaire() { }
         public Questionnaire(string friendlyName, string surveyJson, bool uniquePerUser = true, bool needReview = false, bool isVerifyQuestionnaire = false)
         {
             if (IsVerifyQuestionnaire)
@@ -82,15 +88,18 @@ namespace SurveyBackend.Models
         /// <summary>
         /// 8位简短提交 ID，便于展示
         /// </summary>
+        [NotMapped]
         public string ShortSubmissionId => SubmissionId[..8];
         /// <summary>
-        /// 提交所属的问卷 ID
+        /// 提交所属的问卷
         /// </summary>
-        public Questionnaire Questionnaire { get; set; }
+        public required Questionnaire Questionnaire { get; set; }
+        public string? QuestionnaireId { get; set; }
         /// <summary>
         /// 提交所属的用户
         /// </summary>
-        public User User { get; set; }
+        public required User User { get; set; }
+        public string? UserId { get; set; }
         /// <summary>
         /// 提交时间
         /// </summary>
@@ -100,9 +109,9 @@ namespace SurveyBackend.Models
         /// <summary>
         /// 用户的提交回答，遵循 Survey.js 相关规范
         /// </summary>
-        public string SurveyData { get; set; }
+        public required string SurveyData { get; set; }
 
-
+        public Submission() { }
 
         public Submission(Questionnaire questionnaire, string surveyData, User user)
         {
@@ -122,12 +131,13 @@ namespace SurveyBackend.Models
     public class ReviewSubmissionData
     {
         public string ReviewSubmissionDataId { get; set; } = Nanoid.Generate(size: 16);
-        public Submission Submission { get; set; }
+        public required Submission Submission { get; set; }
+        public string? SubmissionId { get; set; }
 
         public string AIInsights { get; set; } = "不可用";
 
         public ReviewStatus Status { get; set; } = ReviewStatus.Pending;
-
+        public ReviewSubmissionData() { }
         public ReviewSubmissionData(Submission submission)
         {
             Submission = submission;
@@ -143,11 +153,13 @@ namespace SurveyBackend.Models
     public class ReviewVote
     {
         public int Id { get; set; }
-        public ReviewSubmissionData ReviewSubmissionData { get; set; }
-        public User User { get; set; }
+        public required ReviewSubmissionData ReviewSubmissionData { get; set; }
+        public required string ReviewSubmissionDataId { get; set; }
+        public required User User { get; set; }
+        public string? UserId { get; set; }
         public VoteType VoteType { get; set; }
         public DateTime VoteTime { get; set; } = DateTime.UtcNow;
-
+        public ReviewVote() { }
         public ReviewVote(ReviewSubmissionData reviewSubmissionData, User user, VoteType voteType)
         {
             ReviewSubmissionData = reviewSubmissionData;
@@ -164,9 +176,11 @@ namespace SurveyBackend.Models
     {
         public string RequestId { get; set; } = Nanoid.Generate(size: 16);
         public RequestType RequestType { get; set; }
-        public User User { get; set; }
+        public required User User { get; set; }
+        public string? UserId { get; set; }
         public bool IsDisabled { get; set; } = false;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public Request() { }
         public Request(User user, RequestType requestType)
         {
             User = user;
