@@ -1,4 +1,4 @@
-﻿using MySqlConnector;
+using MySqlConnector;
 using Sisters.WudiLib;
 
 namespace SurveyBackend

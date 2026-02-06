@@ -1,4 +1,4 @@
-﻿using Sisters.WudiLib;
+using Sisters.WudiLib;
 using Sisters.WudiLib.Responses;
 
 namespace SurveyBackend
