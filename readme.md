@@ -22,11 +22,17 @@
 
 本项目使用 MySQL 作为数据库。将由 EF Core 自动管理。 
 
-请执行以下命令生成幂等迁移 SQL 指令:
+请执行以下命令生成迁移 SQL 指令:
 ```bash
-dotnet ef migrations script --idempotent -o ./migrations.sql
+dotnet ef migrations script -o ./migrations.sql
 ```
 再将 `./migrations.sql` 在你的 MySQL 数据库服务端执行。
+
+> [!WARNING]
+> 本项目使用 `MySql.EntityFrameworkCore` 作为 EF Core Provider, 该 Provider 无法正常生成幂等的 SQL 脚本，因此请使用干净的 MySQL 数据库执行迁移脚本。必要时请检查生成的 `migrations.sql` 文件，确保其中的 SQL 指令符合预期。
+
+> 当 [Pomelo.EntityFrameworkCore.MySql](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql) 适配 EF Core 10.0 后，我们计划迁移到该 Provider，以获得更好的性能和更稳定的迁移支持。
+
 
 ## 配置文件
 
@@ -49,11 +55,6 @@ dotnet ef migrations script --idempotent -o ./migrations.sql
   "ConnectionStrings": {
     "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;SslMode=Required"
   }, // 可以修改SslMode为None以禁用SSL连接
-
-  // 问卷包配置，目前 Demo 仅支持单一问卷的多版本集合
-  "Survey": {
-    "packedSurveyPath": "ltyybMain.psj"
-  },
 
   // 符合 OneBot v11 标准的 QQ 机器人配置
   // 连接方式为反向ws连接, 即本程序启动ws服务器供 OneBot 协议端连接
@@ -85,6 +86,9 @@ dotnet ef migrations script --idempotent -o ./migrations.sql
 > 
 > 因此请在修改配置文件后重启程序。
 
+## 指令指南
+
+你可以在会话中使用 `/survey` 指令来测试机器人是否连接正常以及查看可用的子指令列表。
 
 ## 审核流程参照
 
@@ -92,7 +96,7 @@ dotnet ef migrations script --idempotent -o ./migrations.sql
 
 ### 新用户填写问卷流程
 
-1. 新用户加入审核群 V , 发送 `/survey get entr` 或 `/survey entr` 指令。
+1. 新用户加入审核群 V , 发送 `/survey start`
 
 2. 本程序尝试为该 QQ 号注册随机的 UserId 并写入数据库 (如果已存在则直接在数据库中查询)。
 
@@ -205,4 +209,4 @@ dotnet ef migrations script --idempotent -o ./migrations.sql
 
 本项目采用 MIT 许可证，详情请参见 `LICENSE.txt` 文件。
 
-Copyright © 2025 [厦门六中同安校区音游部](https://github.com/ltyyb) & [Aunt Studio](https://github.com/Aunt-Studio)
+Copyright © 2026 [厦门六中同安校区音游部](https://github.com/ltyyb) & [Aunt Studio](https://github.com/Aunt-Studio)
