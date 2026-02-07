@@ -121,7 +121,7 @@ namespace SurveyBackend.Models
             db.Requests.Add(request);
             await db.SaveChangesAsync(cancellationToken);
 
-            var link = $"{surveyLinkEndpoint}{questionnaire.QuestionnaireId}?requestId={request.RequestId}";
+            var link = $"{surveyLinkEndpoint}?questionnaireId={questionnaire.QuestionnaireId}&requestId={request.RequestId}";
             return link;
         }
 

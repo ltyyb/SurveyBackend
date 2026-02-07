@@ -61,11 +61,8 @@ namespace SurveyBackend.Controllers
             return Ok(new
             {
                 status = 0,
-                data = new
-                {
-                    surveyJson = GetSpecificSurveyJson(questionnaire, user),
-                    qqId = user.QQId
-                }
+                surveyJson = GetSpecificSurveyJson(questionnaire, user),
+                qqId = user.QQId
             });
 
 
@@ -292,6 +289,8 @@ namespace SurveyBackend.Controllers
             {
                 long mainGroupId;
                 long verifyGroupId;
+                string? surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
+
                 if (string.IsNullOrEmpty(_configuration["Bot:verifyGroupId"]))
                 {
                     _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
@@ -318,7 +317,15 @@ namespace SurveyBackend.Controllers
                         return false;
                     }
                 }
-
+                if (string.IsNullOrWhiteSpace(surveyLinkEndpoint))
+                {
+                    _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 配置 \"API:SurveyLinkEndpoint\" 为正确的端点URL。");
+                    return false;
+                }
+                // 统一端点格式
+                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
+                                    ? surveyLinkEndpoint
+                                    : surveyLinkEndpoint + "/";
                 string qqId = reviewSubmission.Submission.User.QQId;
                 string submissionId = reviewSubmission.Submission.SubmissionId;
                 string shortId = reviewSubmission.Submission.ShortSubmissionId;
@@ -335,7 +342,8 @@ namespace SurveyBackend.Controllers
                 _logger.LogInformation($"Feedback message sent to verify group {verifyGroupId} with messageId: {feedbackMsg?.MessageId}");
 
 
-                var link = $"https://ltyyb.auntstudio.com/survey/entr/review?submissionId={submissionId}";
+                var link = $"{surveyLinkEndpoint}?review=true&questionnaireId={reviewSubmission.Submission.QuestionnaireId}&submissionId={reviewSubmission.SubmissionId}";
+
                 var atAll = SendingMessage.AtAll();
                 var message = new SendingMessage($"""
 

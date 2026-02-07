@@ -102,7 +102,7 @@ namespace SurveyBackend
                 foreach (var reviewData in unverifiedSubmissions)
                 {
                     // 构造消息内容
-                    var link = $"{surveyLinkEndpoint}review?surveyId={reviewData.Submission.SubmissionId}";
+                    var link = $"{surveyLinkEndpoint}?review=true&questionnaireId={reviewData.Submission.QuestionnaireId}&submissionId={reviewData.SubmissionId}";
                     var atAll = SendingMessage.AtAll();
                     var message = new SendingMessage($"""
 
