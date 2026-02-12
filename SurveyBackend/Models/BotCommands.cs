@@ -60,20 +60,24 @@ namespace SurveyBackend.Models
                     return CommandResponse.FailureResponse("您已通过审核或为待定身份组，无需重复填写问卷。");
                 }
 
-                // 获取 verifyQuestionnaire
-                var verifyQuestionnaires = await db.Questionnaires
-                                                .Where(q => q.IsVerifyQuestionnaire)
+                var verifySurveys = await db.Surveys
+                                                .Where(s => s.IsVerifySurvey)
                                                 .ToListAsync(cancellationToken);
-                if (verifyQuestionnaires.Count == 0)
+                if (verifySurveys.Count == 0)
                 {
-                    _logger.LogError("未找到任何用于审核的问卷。请先在数据库中添加一份 IsVerifyQuestionnaire = true 的问卷。");
+                    _logger.LogError("未找到任何用于审核的问卷。请先在数据库中添加一份 IsVerifySurvey = true 的问卷。");
                     return CommandResponse.FailureResponse("系统未配置审核问卷，请联系管理员。");
                 }
-                // 选择最新发布的问卷
-                var verifyQuestionnaire = verifyQuestionnaires
-                                          .MaxBy(q => q.ReleaseDate)!;
-                var surveyLink = await GenerateSurveyLinkForUserAsync(user, verifyQuestionnaire, surveyLinkEndpoint, cancellationToken);
-                var message = $"""
+                else if (verifySurveys.Count == 1)
+                {
+                    var questionnaires = await db.Questionnaires
+                                                .Where(q => q.SurveyId == verifySurveys[0].SurveyId)
+                                                .ToListAsync(cancellationToken);
+                    // 选择最新发布的问卷
+                    var questionnaire = questionnaires
+                                        .MaxBy(q => q.ReleaseDate)!;
+                    var surveyLink = await GenerateSurveyLinkForUserAsync(user, questionnaire, surveyLinkEndpoint, cancellationToken);
+                    var message = $"""
 
                         o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
                         请访问链接下方链接:
@@ -90,13 +94,70 @@ namespace SurveyBackend.Models
                         你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
                         本消息对应用户: 
                         """;
-                var atMessage = Message.At(context.UserId);
-                return CommandResponse.SuccessResponse(new Message(message) + atMessage);
+                    var atMessage = Message.At(context.UserId);
+                    return CommandResponse.SuccessResponse(new Message(message) + atMessage);
+                }
+                else if (args.Length == 1
+                        && int.TryParse(args[0], out int index)
+                        && index >= 1 && index <= verifySurveys.Count)
+                {
+                    var selectedSurvey = verifySurveys[index - 1];
+                    var questionnaires = await db.Questionnaires
+                                                .Where(q => q.SurveyId == selectedSurvey.SurveyId)
+                                                .ToListAsync(cancellationToken);
+                    // 选择最新发布的问卷
+                    var questionnaire = questionnaires
+                                        .MaxBy(q => q.ReleaseDate)!;
+                    var surveyLink = await GenerateSurveyLinkForUserAsync(user, questionnaire, surveyLinkEndpoint, cancellationToken);
+                    var message = $"""
+
+                        o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
+                        请访问链接下方链接:
+                        
+                        {surveyLink}
+
+                        完成问卷~
+                        如复制到浏览器中访问，请务必确保链接完整。请不要修改链接任何内容。
+                        请注意, 此链接2小时内有效哦。
+                        如果您在1小时以内获取过问卷, 则该链接继承上一链接有效期。
+
+                        (/▽＼) 您选择的问卷为 "{selectedSurvey.Title}"
+                        请注意核对~
+
+                        ⚠ 请注意看清链接所属用户，请勿填写他人问卷链接。
+                        你知道吗？每份问卷链接都对应唯一用户哦~
+                        你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
+                        本消息对应用户: 
+                        """;
+                    var atMessage = Message.At(context.UserId);
+                    return CommandResponse.SuccessResponse(new Message(message) + atMessage);
+                }
+                else
+                {
+                    string additionalHelp = "六同学生请选择本校问卷，非六同学生(含东渡校区学生)请选择非本校区问卷。";
+
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"数据库中存在 {verifySurveys.Count} 份用于审核的问卷。");
+                    sb.AppendLine("请参考问卷标题及描述选择最符合您情况的问卷:\n=================");
+                    for (int i = 0; i < verifySurveys.Count; i++)
+                    {
+                        sb.AppendLine($"[{i + 1}] {verifySurveys[i].Title} ");
+                        sb.AppendLine($"  |描述: {verifySurveys[i].Description}");
+                        sb.AppendLine($"  |使用指令 /survey start {i + 1} 来选择此问卷");
+                    }
+                    if (!string.IsNullOrEmpty(additionalHelp))
+                    {
+                        sb.AppendLine("=================");
+                        sb.AppendLine(additionalHelp);
+                    }
+                    return CommandResponse.SuccessResponse(sb.ToString());
+                }
+
             }
             return null;
         }
 
-        private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire, 
+        private async Task<string> GenerateSurveyLinkForUserAsync(User user, Questionnaire questionnaire,
                                                                   string? surveyLinkEndpoint, CancellationToken cancellationToken)
         {
             using var scope = _scopeFactory.CreateScope();
@@ -189,6 +250,11 @@ namespace SurveyBackend.Models
                         int failCount = 0;
                         foreach (var member in members)
                         {
+                            if (member.UserId == context.UserId)
+                            {
+                                // 跳过命令执行者，避免权限问题
+                                continue;
+                            }
                             var result = await TrustUser(member.UserId, cancellationToken);
                             if (result)
                             {
@@ -224,7 +290,7 @@ namespace SurveyBackend.Models
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
                 User? user = await db.Users.Where(u => u.QQId == userQQId.ToString())
                                             .SingleOrDefaultAsync(cancellationToken);
-                
+
                 if (user is null)
                 {
                     // 用户不存在，创建新用户
@@ -255,4 +321,5 @@ namespace SurveyBackend.Models
             }
         }
     }
+
 }

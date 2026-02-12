@@ -33,6 +33,38 @@ namespace SurveyBackend.Models
             QQId = qqId;
         }
     }
+    public class Survey
+    {
+        public string SurveyId { get; set; } = Nanoid.Generate(size: 8);
+        public string Title { get; set; } = "未命名问卷";
+        public string Description { get; set; } = "";
+        /// <summary>
+        /// 控制是否每个用户只能提交一次
+        /// </summary>
+        public bool UniquePerUser { get; set; }
+        public bool NeedReview { get; set; }
+        public bool IsVerifySurvey { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        
+        public Survey() { }
+        public Survey(string title, string description, bool uniquePerUser, bool needReview, bool isVerifyQuestionnaire, DateTime releaseDate)
+        {
+            Title = title;
+            Description = description;
+            IsVerifySurvey = isVerifyQuestionnaire;
+            CreatedAt = releaseDate;
+            if (IsVerifySurvey)
+            {
+                UniquePerUser = true;
+                NeedReview = true;
+            }
+            else
+            {
+                UniquePerUser = uniquePerUser;
+                NeedReview = needReview;
+            }
+        }
+    }
     /// <summary>
     /// 问卷实体类
     /// </summary>
@@ -42,38 +74,16 @@ namespace SurveyBackend.Models
         /// 问卷唯一标识符
         /// </summary>
         public string QuestionnaireId { get; set; } = Nanoid.Generate(size: 8);
-        public required string FriendlyName { get; set; }
-        /// <summary>
-        /// 控制是否每个用户只能提交一次
-        /// </summary>
-        public bool UniquePerUser { get; set; }
-        public bool NeedReview { get; set; }
-        public bool IsVerifyQuestionnaire { get; set; }
+        public required Survey Survey { get; set; }
+        public string? SurveyId { get; set; }
         public DateTime ReleaseDate { get; set; } = DateTime.UtcNow;
-        /// <summary>
-        /// 问卷的题面，遵循 Survey.js 相关规范
-        /// </summary>
         public required string SurveyJson { get; set; }
+
         public Questionnaire() { }
-        public Questionnaire(string friendlyName, string surveyJson, bool uniquePerUser = true, bool needReview = false, bool isVerifyQuestionnaire = false)
+        public Questionnaire(Survey survey, string surveyJson)
         {
-            if (IsVerifyQuestionnaire)
-            {
-                FriendlyName = friendlyName;
-                SurveyJson = surveyJson;
-                UniquePerUser = true;
-                NeedReview = true;
-                IsVerifyQuestionnaire = true;
-            }
-            else
-            {
-                FriendlyName = friendlyName;
-                SurveyJson = surveyJson;
-                UniquePerUser = uniquePerUser;
-                NeedReview = needReview;
-                IsVerifyQuestionnaire = false;
-            }
-                
+            Survey = survey;
+            SurveyJson = surveyJson;
         }
     }
     /// <summary>

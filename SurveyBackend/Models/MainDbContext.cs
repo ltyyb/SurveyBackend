@@ -9,12 +9,13 @@ namespace SurveyBackend.Models
         {
         }
         // 定义 DbSet 属性
-        public DbSet<User> Users { get; set; }
-        public DbSet<Questionnaire> Questionnaires { get; set; }
-        public DbSet<Submission> Submissions { get; set; }
-        public DbSet<ReviewSubmissionData> ReviewSubmissions { get; set; }
-        public DbSet<ReviewVote> ReviewVotes { get; set; }
-        public DbSet<Request> Requests { get; set; }
+        public required DbSet<User> Users { get; set; }
+        public required DbSet<Survey> Surveys { get; set; }
+        public required DbSet<Questionnaire> Questionnaires { get; set; }
+        public required DbSet<Submission> Submissions { get; set; }
+        public required DbSet<ReviewSubmissionData> ReviewSubmissions { get; set; }
+        public required DbSet<ReviewVote> ReviewVotes { get; set; }
+        public required DbSet<Request> Requests { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -36,6 +37,26 @@ namespace SurveyBackend.Models
                 entity.HasIndex(x => x.QQId)
                       .IsUnique();
             });
+            modelBuilder.Entity<Survey>(entity =>
+            {
+                entity.ToTable("surveys");
+                entity.HasKey(x => x.SurveyId);
+                entity.Property(x => x.SurveyId)
+                      .HasMaxLength(8);
+                entity.Property(x => x.Title)
+                      .HasMaxLength(200)
+                      .IsRequired();
+                entity.Property(x => x.Description)
+                      .HasMaxLength(1000);
+                entity.Property(x => x.UniquePerUser)
+                      .IsRequired();
+                entity.Property(x => x.NeedReview)
+                      .IsRequired();
+                entity.Property(x => x.IsVerifySurvey)
+                      .IsRequired();
+                entity.Property(x => x.CreatedAt)
+                      .IsRequired();
+            });
 
             // 配置 问卷表 实体
             modelBuilder.Entity<Questionnaire>(entity =>
@@ -44,15 +65,13 @@ namespace SurveyBackend.Models
                 entity.HasKey(x => x.QuestionnaireId);
                 entity.Property(x => x.QuestionnaireId)
                       .HasMaxLength(8);
-                entity.Property(x => x.FriendlyName)
-                      .HasMaxLength(100)
+                entity.Property(x => x.SurveyId)
+                      .HasMaxLength(8)
                       .IsRequired();
-                entity.Property(x => x.UniquePerUser)
-                      .IsRequired();
-                entity.Property(x => x.NeedReview)
-                      .IsRequired();
-                entity.Property(x => x.IsVerifyQuestionnaire)
-                      .IsRequired();
+                entity.HasOne(x => x.Survey)
+                      .WithMany()
+                      .HasForeignKey(x => x.SurveyId)
+                      .OnDelete(DeleteBehavior.Restrict);
                 entity.Property(x => x.ReleaseDate)
                       .IsRequired();
                 entity.Property(x => x.SurveyJson)
