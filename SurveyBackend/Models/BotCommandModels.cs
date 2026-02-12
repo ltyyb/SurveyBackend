@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Reflection;
 using System.Text;
 using Message = Sisters.WudiLib.SendingMessage;
 using MessageContext = Sisters.WudiLib.Posts.Message;
@@ -126,6 +127,15 @@ namespace SurveyBackend.Models
             }
 
             helpBuilder.AppendLine($"\n示例: {CMD_PREFIX} help");
+            helpBuilder.AppendLine($"""
+                                    =================================
+                                    Developed by Aunt_nuozhen with ❤
+                                    Powered by Aunt Studio & .NET 10
+                                    后端版本: {Assembly
+                                            .GetExecutingAssembly()
+                                            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                                            .InformationalVersion ?? "未知"}
+                                    """);
 
             return helpBuilder.ToString();
         }
