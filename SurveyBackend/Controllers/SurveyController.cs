@@ -53,7 +53,8 @@ namespace SurveyBackend.Controllers
             {
                 return NotFound(new { status = -4, error = $"No questionnaire found with QuestionnaireId: {questionnaireId}" });
             }
-            if (questionnaire.UniquePerUser && await IsUserUnique(questionnaire, user))
+            var survey = questionnaire.Survey;
+            if (survey.UniquePerUser && await IsUserUnique(survey, user))
             {
                 return StatusCode(403, new { status = -3, error = "You already have an submission record of this questionnaire." });
             }
@@ -112,7 +113,7 @@ namespace SurveyBackend.Controllers
             if (success && submission is not null)
             {
                 _logger.LogInformation($"Survey submitted for UserId: {surveySubmission.UserId} ({user.QQId}), the submissionId is {submission.SubmissionId}");
-                if (submission.Questionnaire.NeedReview)
+                if (submission.Questionnaire.Survey.NeedReview)
                 {
                     // 需要审核，创建审核数据记录
                     var reviewSubmissionData = new ReviewSubmissionData { Submission = submission };
@@ -186,27 +187,18 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                var connStr = _configuration.GetConnectionString("DefaultConnection");
-
-                if (string.IsNullOrWhiteSpace(connStr))
+                _db.Users.Attach(user);
+                _db.Questionnaires.Attach(questionnaire);
+                if (questionnaire.Survey.UniquePerUser)
                 {
-                    _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
-                    return (false, null);
-                }
-
-                if (questionnaire.UniquePerUser)
-                {
-                    bool exists = await _db.Submissions
-                                        .AnyAsync(s => s.Questionnaire.QuestionnaireId == questionnaire.QuestionnaireId
-                                                       && s.User.UserId == user.UserId);
+                    bool exists = await IsUserUnique(questionnaire.Survey, user);
                     if (exists)
                     {
-                        _logger.LogWarning($"User {user.UserId} ({user.QQId}) already has a submission for questionnaire {questionnaire.QuestionnaireId}.");
+                        _logger.LogWarning($"User {user.UserId} ({user.QQId}) already has a submission for survey {questionnaire.SurveyId}.");
                         return (false, null);
                     }
                 }
-                _db.Users.Attach(user);
-                _db.Questionnaires.Attach(questionnaire);
+                
                 // 保存到 EF Core 数据库上下文
                 var submission = new Submission
                 {
@@ -216,8 +208,7 @@ namespace SurveyBackend.Controllers
                 };
                 _db.Submissions.Add(submission);
                 // 同步更改
-                await _db.SaveChangesAsync();
-
+                await _db.SaveChangesAsync();                
                 return (true, submission);
 
             }
@@ -233,11 +224,11 @@ namespace SurveyBackend.Controllers
             }
         }
 
-        private async Task<bool> IsUserUnique(Questionnaire questionnaire, User user)
+        private async Task<bool> IsUserUnique(Survey survey, User user)
         {
             try
             {
-                bool exists = await _db.Submissions.AnyAsync(s => s.Questionnaire.QuestionnaireId == questionnaire.QuestionnaireId
+                bool exists = await _db.Submissions.AnyAsync(s => s.Questionnaire.Survey.SurveyId == survey.SurveyId
                                                                   && s.User.UserId == user.UserId);
 
                 return exists;

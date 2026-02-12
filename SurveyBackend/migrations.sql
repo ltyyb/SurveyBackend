@@ -82,5 +82,33 @@ CREATE UNIQUE INDEX `IX_users_QQId` ON `users` (`QQId`);
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260206170122_InitialCreate', '10.0.2');
 
+ALTER TABLE `questionnaires` DROP COLUMN `FriendlyName`;
+
+ALTER TABLE `questionnaires` DROP COLUMN `IsVerifyQuestionnaire`;
+
+ALTER TABLE `questionnaires` DROP COLUMN `NeedReview`;
+
+ALTER TABLE `questionnaires` DROP COLUMN `UniquePerUser`;
+
+ALTER TABLE `questionnaires` ADD `SurveyId` varchar(8) NOT NULL DEFAULT '';
+
+CREATE TABLE `surveys` (
+    `SurveyId` varchar(8) NOT NULL,
+    `Title` varchar(200) NOT NULL,
+    `Description` varchar(1000) NOT NULL,
+    `UniquePerUser` tinyint(1) NOT NULL,
+    `NeedReview` tinyint(1) NOT NULL,
+    `IsVerifySurvey` tinyint(1) NOT NULL,
+    `CreatedAt` datetime(6) NOT NULL,
+    PRIMARY KEY (`SurveyId`)
+);
+
+CREATE INDEX `IX_questionnaires_SurveyId` ON `questionnaires` (`SurveyId`);
+
+ALTER TABLE `questionnaires` ADD CONSTRAINT `FK_questionnaires_surveys_SurveyId` FOREIGN KEY (`SurveyId`) REFERENCES `surveys` (`SurveyId`) ON DELETE RESTRICT;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260212102856_AddSurveyStructure', '10.0.2');
+
 COMMIT;
 
