@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
@@ -198,6 +198,30 @@ namespace SurveyBackend
             // verifyQuestionnaire = verifyQuestionnaires
             //                             .MaxBy(q => q.ReleaseDate)!;
 
+            // 注册 SuperAdmin
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var adminUser = await db.Users.Where(u => u.QQId == adminId.ToString())
+                                    .SingleOrDefaultAsync(stoppingToken);
+            if (adminUser is null)
+            {
+                adminUser = new User
+                {
+                    QQId = adminId.ToString(),
+                    UserGroup = UserGroup.SuperAdmin
+                };
+                db.Users.Add(adminUser);
+                await db.SaveChangesAsync(stoppingToken);
+                _logger.LogInformation("管理员用户已添加到数据库。QQ号: {adminQQ}", adminId);
+            }
+            else if (adminUser.UserGroup != UserGroup.SuperAdmin)
+            {
+                adminUser.UserGroup = UserGroup.SuperAdmin;
+                db.Users.Update(adminUser);
+                await db.SaveChangesAsync(stoppingToken);
+                _logger.LogInformation("管理员用户已更新为超级管理员。QQ号: {adminQQ}", adminId);
+            }
+
             // 注册指令
             List<ICommandHandler> commandHandlers = new List<ICommandHandler>
             {
@@ -252,21 +276,21 @@ namespace SurveyBackend
                         }
                     }
                 };
-                // listener.GroupRequestEvent += (api, e) =>
-                // {
-                //     _logger.LogInformation("收到群请求: {groupId} 来自 {userId}", e.GroupId, e.UserId);
+                listener.GroupRequestEvent += (api, e) =>
+                {
+                    _logger.LogInformation("收到群请求: {groupId} 来自 {userId}", e.GroupId, e.UserId);
                     
-                //     if (e.GroupId != mainGroupId) return true;
-                //     // 验证是否已审核
-                //     if (IsVerified(e.UserId.ToString()))
-                //     {
-                //         return true;
-                //     }
-                //     else
-                //     {
-                //         return "请先在审核群完成审核。";
-                //     }
-                // };
+                    if (e.GroupId != mainGroupId) return true;
+                    // 验证是否已审核
+                    if (IsVerified(e.UserId.ToString()))
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return "请先在审核群完成审核。";
+                    }
+                };
             }, accessToken);
             reverseWSServer.Start(stoppingToken);
             _logger.LogInformation("Onebot 后台服务配置初始化成功, 已启动反向 WebSocket 服务器。");
@@ -1422,25 +1446,21 @@ namespace SurveyBackend
         //     return await ResponseTools.GetFullResponseIdAsync(shortId, _logger, connStr!, true);
         // }
 
-        // private bool IsVerified(string qqId)
-        // {
-        //     try
-        //     {
-        //         using var conn = new MySqlConnection(connStr);
-        //         conn.Open();
-        //         const string query = "SELECT IsVerified FROM qqusers WHERE QQId = @qqId";
-        //         using var cmd = new MySqlCommand(query, conn);
-        //         cmd.Parameters.AddWithValue("@qqId", qqId);
-        //         var result = cmd.ExecuteScalar() ?? false;
-        //         _logger.LogInformation(qqId + " IsVerified: " + result);
-        //         return Convert.ToBoolean(result);
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         _logger.LogError(ex, "检查用户是否已验证时发生错误");
-        //         return false;
-        //     }
-        // }
+        private bool IsVerified(string qqId)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var user = db.Users.FirstOrDefault(u => u.QQId == qqId);
+                return user?.UserGroup == UserGroup.VerifiedUser;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查用户是否已验证时发生错误");
+                return false;
+            }
+        }
         // private async Task<bool> IsVerifiedAsync(string qqId)
         // {
         //     try
