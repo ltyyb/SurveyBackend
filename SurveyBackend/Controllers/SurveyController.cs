@@ -178,7 +178,8 @@ namespace SurveyBackend.Controllers
             {
                 return BadRequest(new { status = -1, error = "Invalid questionnaire upload data." });
             }
-            var request = await _db.Requests.FindAsync(questionnaireJson.RequestId);
+            var request = await _db.Requests.Include(r => r.User)
+                                            .FirstOrDefaultAsync(r => r.RequestId == questionnaireJson.RequestId);
             if (request is null)
             {
                 return StatusCode(403, new { status = -2, error = $"No request found with RequestId: {questionnaireJson.RequestId}." });
