@@ -9,7 +9,7 @@ namespace SurveyBackend.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [EnableCors("AllowAll")]
-    class RequestController : ControllerBase
+    public class RequestController : ControllerBase
     {
         private readonly ILogger<RequestController> _logger;
         private readonly IConfiguration _configuration;
