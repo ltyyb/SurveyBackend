@@ -90,10 +90,9 @@ namespace SurveyBackend
         private string? apiEndpoint;
         private string? surveyLinkEndpoint;
 
-        private bool isDisabled = false;
+        public bool IsDisabled { get; set; } = false;
 
         public HttpApiClient? onebotApi {get; private set; }
-        private Questionnaire? defultQuestionnaire;
         
         private SurveyCommandRegistry _commandRegistry = new();
 
@@ -264,15 +263,15 @@ namespace SurveyBackend
                     {
                         if (cmdResponse.Message is not null)
                         {
-                            await ReplyMessageWithAt(e, cmdResponse.Message);
+                            await ReplyMessageWithAtAsync(e, cmdResponse.Message);
                         }
                         else if (cmdResponse.Success)
                         {
-                            await ReplyMessageWithAt(e, "指令执行成功。");
+                            await ReplyMessageWithAtAsync(e, "指令执行成功。");
                         }
                         else
                         {
-                            await ReplyMessageWithAt(e, "指令执行失败。无更多信息，如必要请询问管理员索要日志。");
+                            await ReplyMessageWithAtAsync(e, "指令执行失败。无更多信息，如必要请询问管理员索要日志。");
                         }
                     }
                 };
@@ -1889,7 +1888,7 @@ namespace SurveyBackend
         #region IOnebotService
 
         public bool IsAvailable { get; private set; } = false;
-        public async Task<SendMessageResponseData?> SendMessage(Sisters.WudiLib.Posts.Endpoint endpoint, string message)
+        public async Task<SendMessageResponseData?> SendMessageAsync(Sisters.WudiLib.Posts.Endpoint endpoint, string message)
         {
             if (onebotApi is null)
             {
@@ -1907,7 +1906,7 @@ namespace SurveyBackend
             }
         }
 
-        public async Task<SendMessageResponseData?> SendMessage(Sisters.WudiLib.Posts.Endpoint endpoint, Sisters.WudiLib.Message message)
+        public async Task<SendMessageResponseData?> SendMessageAsync(Sisters.WudiLib.Posts.Endpoint endpoint, Sisters.WudiLib.Message message)
         {
             if (onebotApi is null)
             {
@@ -1925,7 +1924,7 @@ namespace SurveyBackend
             }
         }
 
-        public async Task<SendMessageResponseData?> SendMessageWithAt(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, string message)
+        public async Task<SendMessageResponseData?> SendMessageWithAtAsync(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, string message)
         {
             if (onebotApi is null)
             {
@@ -1945,7 +1944,7 @@ namespace SurveyBackend
             }
         }
 
-        public async Task<SendMessageResponseData?> SendMessageWithAt(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, SendingMessage message)
+        public async Task<SendMessageResponseData?> SendMessageWithAtAsync(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, SendingMessage message)
         {
             if (onebotApi is null)
             {
@@ -2003,11 +2002,14 @@ namespace SurveyBackend
             return await onebotApi.SendPrivateMessageAsync(qqId, message);
         }
 
-        public async Task<SendMessageResponseData?> ReplyMessageWithAt(Message fatherMessage, SendingMessage message)
+        public async Task<SendMessageResponseData?> ReplyMessageWithAtAsync(Message fatherMessage, SendingMessage message)
         {
             var replySection = new Section("xml", ("id", fatherMessage.MessageId.ToString()));
-            return await SendMessageWithAt(fatherMessage.Endpoint, fatherMessage.UserId, new SendingMessage(replySection) + message);
+            return await SendMessageWithAtAsync(fatherMessage.Endpoint, fatherMessage.UserId, new SendingMessage(replySection) + message);
         }
+
+
+
         #endregion
     }
 }
