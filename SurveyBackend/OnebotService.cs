@@ -225,7 +225,9 @@ namespace SurveyBackend
             List<ICommandHandler> commandHandlers = new List<ICommandHandler>
             {
                 new StartCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
-                new TrustCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>())
+                new TrustCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>()),
+                new CreateSurveyCommand(_scopeFactory),
+                new CreateQuestionnaireCommand(_scopeFactory, _configuration)
             };
             foreach (var handler in commandHandlers)
             {
