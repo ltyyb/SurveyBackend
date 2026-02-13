@@ -85,8 +85,8 @@ namespace SurveyBackend.Models
                 return CommandResponse.SuccessResponse(new Message(GetHelpMessage()));
             }
 
-            // 拆分命令和参数
-            var parts = commandContent.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // 拆分命令和参数（支持引号包裹的参数）
+            var parts = ParseCommandParts(commandContent);
             var cmdName = parts[0].ToLower();
             var args = parts.Skip(1).ToArray();
 
@@ -143,6 +143,52 @@ namespace SurveyBackend.Models
         public IEnumerable<ICommandHandler> GetRegisteredCommands()
         {
             return _handlers.Values.Distinct();
+        }
+
+        private static string[] ParseCommandParts(string commandContent)
+        {
+            var parts = new List<string>();
+            var current = new StringBuilder();
+            var inQuotes = false;
+
+            for (var i = 0; i < commandContent.Length; i++)
+            {
+                var ch = commandContent[i];
+
+                if (ch == '"' )
+                {
+                    if (inQuotes && i + 1 < commandContent.Length && commandContent[i + 1] == '"')
+                    {
+                        // 允许在引号内用 "" 表示一个字面双引号
+                        current.Append('"');
+                        i++;
+                        continue;
+                    }
+
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (char.IsWhiteSpace(ch) && !inQuotes)
+                {
+                    if (current.Length > 0)
+                    {
+                        parts.Add(current.ToString());
+                        current.Clear();
+                    }
+
+                    continue;
+                }
+
+                current.Append(ch);
+            }
+
+            if (current.Length > 0)
+            {
+                parts.Add(current.ToString());
+            }
+
+            return parts.ToArray();
         }
     }
     // 带权限控制的命令基类
