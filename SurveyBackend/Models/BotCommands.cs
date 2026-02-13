@@ -51,7 +51,7 @@ namespace SurveyBackend.Models
                     else
                     {
                         _logger.LogError("用户 {qqId} 注册失败: {err}", context.UserId, registerResult.err);
-                        await _onebot.ReplyMessageWithAt(context, $"注册用户时出现异常。请@管理员。\n 原因: " + registerResult.err);
+                        await _onebot.ReplyMessageWithAtAsync(context, $"注册用户时出现异常。请@管理员。\n 原因: " + registerResult.err);
                         return CommandResponse.FailureResponse($"注册用户时出现异常。请@管理员。\n 原因: " + registerResult.err);
                     }
                 }
@@ -318,6 +318,142 @@ namespace SurveyBackend.Models
             {
                 _logger.LogError(ex, "尝试添加用户 {qqId} 时发生错误", userQQId.ToString());
                 return false;
+            }
+        }
+    }
+    // new 指令
+    public class CreateSurveyCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "new";
+
+        public override string[] Aliases => ["create", "add"];
+
+        public override string Description => "创建一个调查问卷";
+
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        public CreateSurveyCommand(IServiceScopeFactory dbScopeFactory) : base(dbScopeFactory)
+        {
+            _serviceScopeFactory = dbScopeFactory;
+        }
+
+        protected override async Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 2)
+            {
+                var title = args[0];
+                var description = args[1];
+                var survey = new Survey
+                {
+                    Title = title,
+                    Description = description
+                };
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                db.Surveys.Add(survey);
+                await db.SaveChangesAsync(cancellationToken);
+                return CommandResponse.SuccessResponse($"""
+                    ✅ 问卷创建成功！
+                    问卷ID: {survey.SurveyId}
+                    标题: {survey.Title}
+                    描述: {survey.Description}
+
+                    请注意，问卷目前没有对应的 Questionnaire 版本，无法被用户访问。
+                    请私信使用 /survey qnew {survey.SurveyId} 来为该问卷创建一个版本。
+                    """);
+            }
+            else
+            {
+                var msg = """
+                本命令将创建一个新的 Survey 对象并保存至数据库。
+                请注意，Survey 对象 与 Questionnaire 对象不同。一个 Survey 对象代表一个调查项目的基本定义，而 Questionnaire 对象则代表一个具体的问卷版本。
+                当多个 Questionnaire 指向同一个 Survey 对象时，在获取 Survey 对应的问卷题面时，将默认使用最新发布的 Questionnaire 版本。
+                如希望指定该问卷为审核问卷，请创建获得 SurveyId 后使用 /survey setverify [SurveyId] 来设置。 
+                ===================
+                本命令必须带参使用。参数如包含空格应使用引号包裹。
+                使用方法:
+                /survey new [问卷标题] [问卷描述]
+                例如:
+                /survey new "我的新问卷" "新添加的问卷，仅供测试"
+                """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+    }
+    // qnew 指令
+    public class CreateQuestionnaireCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "qnew";
+
+        public override string[] Aliases => ["questionnaire-new", "questionnaire create", "questionnaire add"];
+
+        public override string Description => "为指定 Survey 创建一个新的 Questionnaire 版本, 仅私聊可用";
+
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IConfiguration _configuration;
+        public CreateQuestionnaireCommand(IServiceScopeFactory dbScopeFactory, IConfiguration configuration) : base(dbScopeFactory)
+        {
+            _serviceScopeFactory = dbScopeFactory;
+            _configuration = configuration;
+        }
+
+        protected override async Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (context is not PrivateMessage)
+            {
+                return CommandResponse.FailureResponse("❌ 出于安全考虑，本命令仅可在私聊中使用。");
+            }
+            if (args.Length == 1)
+            {
+                var surveyId = args[0];
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var survey = await db.Surveys.Where(s => s.SurveyId == surveyId)
+                                             .SingleOrDefaultAsync(cancellationToken);
+                if (survey is null)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到这个 Survey，请检查输入的 SurveyId 是否正确。");
+                }
+                var user = await db.Users.Where(u => u.QQId == context.UserId.ToString())
+                                          .SingleOrDefaultAsync(cancellationToken);
+                if (user is null)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到您的用户信息，请检查数据库。");
+                }
+                var request = new Request
+                {
+                    RequestType = RequestType.QuestionnaireCreate,
+                    IsDisabled = false,
+                    User = user,
+                };
+                db.Requests.Add(request);
+                await db.SaveChangesAsync(cancellationToken);
+                var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
+                // 统一端点格式
+                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
+                                    ? surveyLinkEndpoint
+                                    : surveyLinkEndpoint + "/";
+
+                var link = $"{surveyLinkEndpoint}actions/uploadQuestionnaire?surveyId={surveyId}&requestId={request.RequestId}";
+                return CommandResponse.SuccessResponse($"""
+                    ✅ 问卷版本创建请求已生成！
+                    请访问以下链接来编辑问卷题面:
+                    {link}
+
+                    请勿泄露链接，该链接2小时内有效。
+                    在编辑完成并发布后，你将在此看到回执。
+                    """);
+            }
+            else
+            {
+                var msg = """
+                本命令将为指定 Survey 创建一个新的 Questionnaire 版本。
+                你需要先使用 /survey new 创建一个 Survey 对象来获取 SurveyId，才能使用本命令创建 Questionnaire 版本。
+                ===================
+                本命令必须带参使用。参数如包含空格应使用引号包裹。
+                使用方法:
+                /survey qnew [SurveyId]
+                """;
+                return CommandResponse.SuccessResponse(msg);
             }
         }
     }

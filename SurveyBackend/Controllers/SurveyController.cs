@@ -166,6 +166,56 @@ namespace SurveyBackend.Controllers
             });
 
         }
+        public class UploadQuestionnaireData
+        {
+            public string RequestId { get; set; } = string.Empty;
+            public string QuestionnaireJson { get; set; } = string.Empty;
+        }
+        [HttpPost("{surveyId}/uploadQuestionnaire")]
+        public async Task<ActionResult> UploadQuestionnaireAsync(string surveyId, [FromBody] UploadQuestionnaireData questionnaireJson)
+        {
+            if (string.IsNullOrWhiteSpace(questionnaireJson.QuestionnaireJson) || string.IsNullOrWhiteSpace(questionnaireJson.RequestId))
+            {
+                return BadRequest(new { status = -1, error = "Invalid questionnaire upload data." });
+            }
+            var request = await _db.Requests.FindAsync(questionnaireJson.RequestId);
+            if (request is null)
+            {
+                return StatusCode(403, new { status = -2, error = $"No request found with RequestId: {questionnaireJson.RequestId}." });
+            }
+            var survey = await _db.Surveys.FindAsync(surveyId);
+            if (survey is null)
+            {
+                return NotFound(new { status = -3, error = $"No survey found with SurveyId: {surveyId}" });
+            }
+
+            // 检查 QuestionnaireJson 是否为JSON避免数据库CAST出错
+            if (!IsValidJson(questionnaireJson.QuestionnaireJson))
+            {
+                return BadRequest(new { status = -4, error = "QuestionnaireJson is not a valid JSON." });
+            }
+
+            var questionnaire = new Questionnaire
+            {
+                Survey = survey,
+                SurveyJson = questionnaireJson.QuestionnaireJson
+            };
+
+            _db.Questionnaires.Add(questionnaire);
+            await _db.SaveChangesAsync();
+            if (long.TryParse(request.User.QQId, out long qqId))
+            {
+                await _onebot.SendPrivateMessageAsync(qqId, $"✔ {survey.SurveyId}的 Questionnaire 已上传成功.\nID为：{questionnaire.QuestionnaireId}");
+            }
+             else
+            {
+                _logger.LogError($"Invalid QQId {request.User.QQId} for request {request.RequestId}, cannot send upload success message.");
+            }
+
+            
+
+            return Ok(new { status = 0, questionnaireId = questionnaire.QuestionnaireId });
+        }
 
 
 
@@ -198,7 +248,7 @@ namespace SurveyBackend.Controllers
                         return (false, null);
                     }
                 }
-                
+
                 // 保存到 EF Core 数据库上下文
                 var submission = new Submission
                 {
@@ -208,7 +258,7 @@ namespace SurveyBackend.Controllers
                 };
                 _db.Submissions.Add(submission);
                 // 同步更改
-                await _db.SaveChangesAsync();                
+                await _db.SaveChangesAsync();
                 return (true, submission);
 
             }
@@ -382,5 +432,7 @@ namespace SurveyBackend.Controllers
             specificJson = specificJson.Replace("{Survey_Release_Date}", questionnaire.ReleaseDate.ToString("yyyy-MM-dd"));
             return specificJson;
         }
+
+
     }
 }

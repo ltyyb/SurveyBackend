@@ -180,7 +180,8 @@ namespace SurveyBackend.Models
     
     public enum RequestType
     {
-        SurveyAccess = 0
+        SurveyAccess = 0,
+        QuestionnaireCreate = 1,
     }
     public class Request
     {
