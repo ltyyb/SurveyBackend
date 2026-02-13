@@ -48,7 +48,8 @@ namespace SurveyBackend.Controllers
                 return StatusCode(403, new { status = -2, error = $"Unable to find user with the provided UserId {userId}." });
             }
 
-            var questionnaire = await _db.Questionnaires.FindAsync(questionnaireId);
+            var questionnaire = await _db.Questionnaires.Include(q => q.Survey)
+                                                        .FirstOrDefaultAsync(q => q.QuestionnaireId == questionnaireId);
             if (questionnaire is null)
             {
                 return NotFound(new { status = -4, error = $"No questionnaire found with QuestionnaireId: {questionnaireId}" });
@@ -147,7 +148,8 @@ namespace SurveyBackend.Controllers
                 return NotFound(new { error = $"No questionnaire found with QuestionnaireId: {questionnaireId}" });
             }
 
-            var submission = await _db.Submissions.FindAsync(submissionId);
+            var submission = await _db.Submissions.Include(s => s.User)
+                                                  .FirstOrDefaultAsync(s => s.SubmissionId == submissionId);
             if (submission is null)
             {
                 return NotFound(new { error = $"No submission found with SubmissionId: {submissionId}" });
@@ -208,12 +210,12 @@ namespace SurveyBackend.Controllers
             {
                 await _onebot.SendPrivateMessageAsync(qqId, $"✔ {survey.SurveyId}的 Questionnaire 已上传成功.\nID为：{questionnaire.QuestionnaireId}");
             }
-             else
+            else
             {
                 _logger.LogError($"Invalid QQId {request.User.QQId} for request {request.RequestId}, cannot send upload success message.");
             }
 
-            
+
 
             return Ok(new { status = 0, questionnaireId = questionnaire.QuestionnaireId });
         }
@@ -240,9 +242,16 @@ namespace SurveyBackend.Controllers
             {
                 _db.Users.Attach(user);
                 _db.Questionnaires.Attach(questionnaire);
-                if (questionnaire.Survey.UniquePerUser)
+                var survey = await _db.Surveys
+                                      .FirstOrDefaultAsync(s => s.SurveyId == questionnaire.SurveyId);
+                if (survey is null)
                 {
-                    bool exists = await IsUserUnique(questionnaire.Survey, user);
+                    _logger.LogError($"Survey with SurveyId {questionnaire.SurveyId} not found in database.");
+                    return (false, null);
+                }
+                if (survey.UniquePerUser)
+                {
+                    bool exists = await IsUserUnique(survey, user);
                     if (exists)
                     {
                         _logger.LogWarning($"User {user.UserId} ({user.QQId}) already has a submission for survey {questionnaire.SurveyId}.");
