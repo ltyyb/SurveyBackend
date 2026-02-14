@@ -534,7 +534,9 @@ namespace SurveyBackend.Models
                 using var scope = _serviceScopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
                 var reviewSubmissionData = await db.ReviewSubmissions.Include(r => r.Submission)
-                                                   .Where(s => s.Submission.SubmissionId.StartsWith(submissionIdInput))
+                                                   .Where(s => EF.Functions.Like(
+                                                       s.Submission.SubmissionId,
+                                                       submissionIdInput + "%"))
                                                    .SingleOrDefaultAsync(cancellationToken);
                 if (reviewSubmissionData is null)
                 {
@@ -818,14 +820,18 @@ namespace SurveyBackend.Models
                 {
                     submission = await db.Submissions
                                                     .Include(s => s.User)
-                                                    .Where(s => s.SubmissionId.StartsWith(submissionIdInput))
+                                                    .Where(s => EF.Functions.Like(
+                                                        s.SubmissionId,
+                                                        submissionIdInput + "%"))
                                                     .SingleOrDefaultAsync(cancellationToken);
                 }
                 else
                 {
                     submission = await db.Submissions
                                                     .Include(s => s.User)
-                                                    .Where(s => s.SubmissionId.StartsWith(submissionIdInput)
+                                                    .Where(s => EF.Functions.Like(
+                                                            s.SubmissionId,
+                                                            submissionIdInput + "%")
                                                             && s.UserId == user.UserId)
                                                     .SingleOrDefaultAsync(cancellationToken);
                 }
