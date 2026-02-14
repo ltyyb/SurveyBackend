@@ -504,10 +504,10 @@ namespace SurveyBackend.Models
         }
     }
     // vote 指令
-    public class VoteCommand : AsyncCommandHandlerBase
+    public class VoteCommand : AuthorizedAsyncCommand
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        public VoteCommand(IServiceScopeFactory serviceScopeFactory)
+        public VoteCommand(IServiceScopeFactory serviceScopeFactory) : base(serviceScopeFactory)
         {
             _serviceScopeFactory = serviceScopeFactory;
         }
@@ -516,7 +516,10 @@ namespace SurveyBackend.Models
         public override string Description => "投票一个需要审核的问卷。使用方法: /survey vote [SubmissionId] [a/d]\n " +
         "其中 a 代表通过，d 代表拒绝。SubmissionId 可以简写为前8位，具体可参考审核推送消息。";
 
-        public async override Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
+        
+
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
             if (args.Length == 2)
             {
