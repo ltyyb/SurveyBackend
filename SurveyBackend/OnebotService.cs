@@ -94,7 +94,6 @@ namespace SurveyBackend
 
         public HttpApiClient? onebotApi {get; private set; }
         
-        private SurveyCommandRegistry _commandRegistry = new();
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
@@ -222,6 +221,7 @@ namespace SurveyBackend
             }
 
             // 注册指令
+            var _commandRegistry = new SurveyCommandRegistry(_scopeFactory);
             List<ICommandHandler> commandHandlers = new List<ICommandHandler>
             {
                 new StartCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
@@ -1454,7 +1454,7 @@ namespace SurveyBackend
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
                 var user = db.Users.FirstOrDefault(u => u.QQId == qqId);
-                return user?.UserGroup == UserGroup.VerifiedUser;
+                return user?.UserGroup == UserGroup.VerifiedUser || user?.UserGroup == UserGroup.Admin || user?.UserGroup == UserGroup.SuperAdmin;
             }
             catch (Exception ex)
             {

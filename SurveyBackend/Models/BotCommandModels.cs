@@ -51,6 +51,12 @@ namespace SurveyBackend.Models
         private readonly Dictionary<string, ICommandHandler> _handlers = new(StringComparer.OrdinalIgnoreCase);
         public const string CMD_PREFIX = "/survey";
 
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        public SurveyCommandRegistry(IServiceScopeFactory serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+        }
+
         public void RegisterCommand(ICommandHandler handler)
         {
             _handlers[handler.CommandName] = handler;
@@ -79,10 +85,17 @@ namespace SurveyBackend.Models
             // 去掉前缀，获取实际命令
             var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
 
+            using var scope = _serviceScopeFactory.CreateScope();
+            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
+                                        .SingleOrDefaultAsync(cancellationToken);
+            var userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
+
             // 如果只有前缀没有命令，显示帮助
             if (string.IsNullOrWhiteSpace(commandContent))
             {
-                return CommandResponse.SuccessResponse(new Message(GetHelpMessage()));
+                return CommandResponse.SuccessResponse(new Message(GetHelpMessage(userGroup)));
+
             }
 
             // 拆分命令和参数（支持引号包裹的参数）
@@ -101,10 +114,10 @@ namespace SurveyBackend.Models
             }
 
             // 如果命令不存在，显示帮助
-            return CommandResponse.FailureResponse(new Message(GetHelpMessage($"未知命令: {cmdName}")));
+            return CommandResponse.FailureResponse(new Message(GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
         }
 
-        private string GetHelpMessage(string? customMessage = null)
+        private string GetHelpMessage(UserGroup userGroup, string? customMessage = null)
         {
             var helpBuilder = new StringBuilder();
 
@@ -119,11 +132,37 @@ namespace SurveyBackend.Models
 
             foreach (var handler in _handlers.Values.Distinct())
             {
-                helpBuilder.AppendLine($"• {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
-                if (handler.Aliases.Length > 0)
+                if (handler is AuthorizedAsyncCommand asyncAuthHandler)
                 {
-                    helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
+                    if (asyncAuthHandler.RequiredPermission.Contains(userGroup))
+                    {
+                        helpBuilder.AppendLine($"• [权] {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                        if (handler.Aliases.Length > 0)
+                        {
+                            helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
+                        }
+                    }
                 }
+                else if (handler is AuthorizedCommand authHandler)
+                {
+                    if (authHandler.RequiredPermission.Contains(userGroup))
+                    {
+                        helpBuilder.AppendLine($"• [权] {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                        if (handler.Aliases.Length > 0)
+                        {
+                            helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
+                        }
+                    }
+                }
+                else
+                {
+                    helpBuilder.AppendLine($"• {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                    if (handler.Aliases.Length > 0)
+                    {
+                        helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
+                    }
+                }
+
             }
 
             helpBuilder.AppendLine($"\n示例: {CMD_PREFIX} help");
@@ -155,7 +194,7 @@ namespace SurveyBackend.Models
             {
                 var ch = commandContent[i];
 
-                if (ch == '"' )
+                if (ch == '"')
                 {
                     if (inQuotes && i + 1 < commandContent.Length && commandContent[i + 1] == '"')
                     {
