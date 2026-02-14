@@ -227,7 +227,14 @@ namespace SurveyBackend
                 new StartCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
                 new TrustCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>()),
                 new CreateSurveyCommand(_scopeFactory),
-                new CreateQuestionnaireCommand(_scopeFactory, _configuration)
+                new CreateQuestionnaireCommand(_scopeFactory, _configuration),
+                new VoteCommand(_scopeFactory),
+                new SetUserCommand(_scopeFactory, _loggerFactory.CreateLogger<SetUserCommand>()),
+                new GetCommand(_scopeFactory, _configuration),
+                new DisableSubmissionCommand(_scopeFactory),
+                new SetVerifyCommand(_scopeFactory),
+                new SetReviewCommand(_scopeFactory)
+
             };
             foreach (var handler in commandHandlers)
             {
