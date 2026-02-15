@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MySql.EntityFrameworkCore.Extensions;
+using System.Text.Json;
 
 namespace SurveyBackend.Models
 {
@@ -61,6 +64,14 @@ namespace SurveyBackend.Models
             // 配置 问卷表 实体
             modelBuilder.Entity<Questionnaire>(entity =>
             {
+                var llmPageNamesConverter = new ValueConverter<string[]?, string?>(
+                    v => v == null || v.Length == 0 ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                    v => string.IsNullOrWhiteSpace(v) ? null : JsonSerializer.Deserialize<string[]>(v, (JsonSerializerOptions?)null));
+                var llmPageNamesComparer = new ValueComparer<string[]?>(
+                    (a, b) => ReferenceEquals(a, b) || (a != null && b != null && a.SequenceEqual(b)),
+                    v => v == null ? 0 : v.Aggregate(0, (acc, x) => HashCode.Combine(acc, x == null ? 0 : x.GetHashCode())),
+                    v => v == null ? null : v.ToArray());
+
                 entity.ToTable("questionnaires");
                 entity.HasKey(x => x.QuestionnaireId);
                 entity.Property(x => x.QuestionnaireId)
@@ -72,6 +83,10 @@ namespace SurveyBackend.Models
                       .WithMany()
                       .HasForeignKey(x => x.SurveyId)
                       .OnDelete(DeleteBehavior.Restrict);
+                var llmPageNamesProperty = entity.Property(x => x.LLMPageNames)
+                      .HasConversion(llmPageNamesConverter)
+                      .HasColumnType("json");
+                llmPageNamesProperty.Metadata.SetValueComparer(llmPageNamesComparer);
                 entity.Property(x => x.ReleaseDate)
                       .IsRequired();
                 entity.Property(x => x.SurveyJson)

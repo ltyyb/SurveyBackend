@@ -171,20 +171,21 @@ namespace SurveyBackend.Controllers
         public class UploadQuestionnaireData
         {
             public string RequestId { get; set; } = string.Empty;
+            public string[] LLMPageNames { get; set; } = [];
             public string QuestionnaireJson { get; set; } = string.Empty;
         }
         [HttpPost("{surveyId}/uploadQuestionnaire")]
-        public async Task<ActionResult> UploadQuestionnaireAsync(string surveyId, [FromBody] UploadQuestionnaireData questionnaireJson)
+        public async Task<ActionResult> UploadQuestionnaireAsync(string surveyId, [FromBody] UploadQuestionnaireData questionnaireUploadData)
         {
-            if (string.IsNullOrWhiteSpace(questionnaireJson.QuestionnaireJson) || string.IsNullOrWhiteSpace(questionnaireJson.RequestId))
+            if (string.IsNullOrWhiteSpace(questionnaireUploadData.QuestionnaireJson) || string.IsNullOrWhiteSpace(questionnaireUploadData.RequestId))
             {
                 return BadRequest(new { status = -1, error = "Invalid questionnaire upload data." });
             }
             var request = await _db.Requests.Include(r => r.User)
-                                            .FirstOrDefaultAsync(r => r.RequestId == questionnaireJson.RequestId);
+                                            .FirstOrDefaultAsync(r => r.RequestId == questionnaireUploadData.RequestId);
             if (request is null)
             {
-                return StatusCode(403, new { status = -2, error = $"No request found with RequestId: {questionnaireJson.RequestId}." });
+                return StatusCode(403, new { status = -2, error = $"No request found with RequestId: {questionnaireUploadData.RequestId}." });
             }
             var survey = await _db.Surveys.FindAsync(surveyId);
             if (survey is null)
@@ -193,7 +194,7 @@ namespace SurveyBackend.Controllers
             }
 
             // 检查 QuestionnaireJson 是否为JSON避免数据库CAST出错
-            if (!IsValidJson(questionnaireJson.QuestionnaireJson))
+            if (!IsValidJson(questionnaireUploadData.QuestionnaireJson))
             {
                 return BadRequest(new { status = -4, error = "QuestionnaireJson is not a valid JSON." });
             }
@@ -201,7 +202,8 @@ namespace SurveyBackend.Controllers
             var questionnaire = new Questionnaire
             {
                 Survey = survey,
-                SurveyJson = questionnaireJson.QuestionnaireJson
+                LLMPageNames = questionnaireUploadData.LLMPageNames,
+                SurveyJson = questionnaireUploadData.QuestionnaireJson
             };
 
             _db.Questionnaires.Add(questionnaire);
@@ -305,26 +307,34 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                var submission = reviewSubmission.Submission;
-                var surveyData = submission.SurveyData;
-
-                var surveyJson = submission.Questionnaire.SurveyJson;
                 var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
                 if (!llmTool.IsAvailable)
                 {
                     _logger.LogWarning("LLM Tool is not available, skipping insight generation.");
                     return false;
                 }
-                var prompt = llmTool.ParseSurveyResponseToNL(surveyJson, surveyData);
+                _db.Entry(reviewSubmission).Reference(r => r.Submission).Load();
+                var submission = reviewSubmission.Submission;
+                var surveyData = submission.SurveyData;
+                _db.Entry(submission).Reference(s => s.Questionnaire).Load();
+                var questionnaire = submission.Questionnaire;
+                if (questionnaire.LLMPageNames is null)
+                {
+                    return false;
+                }
+                var surveyJson = questionnaire.SurveyJson;
+                var prompt = llmTool.ParseSurveyResponseToNL(surveyJson, surveyData, questionnaire.LLMPageNames);
                 if (string.IsNullOrWhiteSpace(prompt))
                 {
                     _logger.LogError($"Failed to parse survey response to natural language for submission: {submission.SubmissionId}");
                     return false;
                 }
+                _logger.LogInformation($"Parsed survey response to natural language for submission: {submission.SubmissionId}\n {prompt}");
                 var insight = await llmTool.GetInsight(prompt);
                 _logger.LogInformation($"Insight generated for submission: {submission.SubmissionId}");
                 // 更新数据库
                 reviewSubmission.AIInsights = insight ?? "AI 未能生成见解，可能目前不可用。";
+                _db.Update(reviewSubmission);
                 await _db.SaveChangesAsync();
                 return true;
             }
