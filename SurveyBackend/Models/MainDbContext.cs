@@ -82,7 +82,7 @@ namespace SurveyBackend.Models
                 entity.HasOne(x => x.Survey)
                       .WithMany()
                       .HasForeignKey(x => x.SurveyId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 var llmPageNamesProperty = entity.Property(x => x.LLMPageNames)
                       .HasConversion(llmPageNamesConverter)
                       .HasColumnType("json");
@@ -110,11 +110,11 @@ namespace SurveyBackend.Models
                 entity.HasOne(x => x.Questionnaire)
                       .WithMany()
                       .HasForeignKey(x => x.QuestionnaireId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.HasOne(x => x.User)
                       .WithMany()
                       .HasForeignKey(x => x.UserId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.Property(x => x.CreatedAt)
                       .IsRequired();
                 entity.Property(x => x.IsDisabled)
@@ -138,7 +138,7 @@ namespace SurveyBackend.Models
                 entity.HasOne(x => x.Submission)
                       .WithMany()
                       .HasForeignKey(x => x.SubmissionId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.Property(x => x.Status)
                       .IsRequired();
                 entity.Property(x => x.AIInsights);
@@ -159,11 +159,11 @@ namespace SurveyBackend.Models
                 entity.HasOne(x => x.ReviewSubmissionData)
                       .WithMany()
                       .HasForeignKey(x => x.ReviewSubmissionDataId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.HasOne(x => x.User)
                       .WithMany()
                       .HasForeignKey(x => x.UserId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.Property(x => x.VoteType)
                       .IsRequired();
                 entity.Property(x => x.VoteTime)
@@ -186,7 +186,7 @@ namespace SurveyBackend.Models
                 entity.HasOne(x => x.User)
                       .WithMany()
                       .HasForeignKey(x => x.UserId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                      .OnDelete(DeleteBehavior.Cascade);
                 entity.Property(x => x.IsDisabled)
                       .IsRequired();
                 entity.Property(x => x.CreatedAt)

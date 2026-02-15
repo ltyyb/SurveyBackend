@@ -89,7 +89,7 @@ namespace SurveyBackend
                 List<ReviewSubmissionData> pendingSubmissions 
                 = await _db.ReviewSubmissions.Where(r => r.Status == ReviewStatus.Pending)
                                              .Include(r => r.Submission)
-                                             .ThenInclude(s => s.User)
+                                                .ThenInclude(s => s.User)
                                              .ToListAsync(cancellationToken);
                 if (pendingSubmissions.Count > 0)
                 {
@@ -129,6 +129,7 @@ namespace SurveyBackend
                     {
                         _logger.LogInformation("SubmissionId: {SubmissionId} 审核未通过。", submission.SubmissionId);
                         reviewData.Status = ReviewStatus.Rejected;
+                        user.UserGroup = UserGroup.NewComer;
                         await _db.SaveChangesAsync(cancellationToken);
                         var atMessage = SendingMessage.At(long.Parse(user.QQId));
                         var message = $"""

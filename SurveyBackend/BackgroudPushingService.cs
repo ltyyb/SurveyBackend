@@ -93,7 +93,7 @@ namespace SurveyBackend
                 var unverifiedSubmissions = await db.ReviewSubmissions
                                                  .Where(r => r.Status == ReviewStatus.Pending)
                                                  .Include(r => r.Submission)
-                                                 .ThenInclude(s => s.User)
+                                                    .ThenInclude(s => s.User)
                                                  .ToListAsync(cancellationToken);
                 if (unverifiedSubmissions.Count > 0)
                 {
