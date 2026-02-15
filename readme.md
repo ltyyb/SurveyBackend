@@ -2,25 +2,90 @@
 
 [![wakatime](https://wakatime.com/badge/user/486c5b5b-ef54-48dd-a69c-bacb70bf3113/project/6edfb7f5-f587-44a5-9a66-b746fd2086e6.svg)](https://wakatime.com/badge/user/486c5b5b-ef54-48dd-a69c-bacb70bf3113/project/6edfb7f5-f587-44a5-9a66-b746fd2086e6)
 
-适用于厦门六中同安校区音游部的入群问卷调查后端。
+适用于厦门六中同安校区音游部的入群问卷调查后端。现已更通用化，并提供高可自定义配置。
 
 基于 ASP.NET Core 10.0 。与前端连接部分提供问卷题目的读取和问卷结果的提交接口等，并与群内机器人联动，实现自动推送问卷、众审投票等功能。详见[审核流程参照](#审核流程参照)。
 
 ---
 
-此分支正在积极开发中~
+从 `v3` 版本开始本系统已使用 EF Core 管理数据库操作，且 `v4`/`v3` 均发生了较大的数据库结构变更，从更低版本升级请务必自行完成迁移，并注意备份数据。
 
-我们计划在这个分支开发 `v3` 版本，实现多问卷，并使用 EF Core 改善数据库结构，同时实现更多拓展功能。
+> [!TIP]
+> `v2` 及更低版本存档在 [`legacy` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy) 。
 
-> [!WARNING]
-> `v3` 版本预计所有接口与 `v2` 不再兼容，前端应注意迁移。
+## 快速开始
 
-> v3 开发过程中可能由 Action 自动构建并管理版本号。
+### 从一般构建中启动
+
+一般构建从 `main` 分支中编译发行，具有更好的稳定性。
+
+1. 安装 [ASP.NET Core 运行时 10.0 或更高版本](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)。
+
+2. 前往 Main Build Action 页面: [Main Build Action](https://github.com/ltyyb/SurveyBackend/actions/workflows/main-build.yml)。
+
+3. 选择最新一次运行记录。
+
+4. 在底部找到 `Artifacts`, 根据操作系统环境选择构建版本 `SurveyBackend-x.x.x+abcdefg-xxxxxxx-x64-x64`, 例如 Linux 环境选择 `SurveyBackend-4.2.1+c07af04-linux-x64-x64`，Windows 选择 `SurveyBackend-4.2.1+c07af04-win-x64-x64`。
+
+5. 点击下载按钮下载构建包。
+
+6. 解压到服务器任意目录下。
+
+7. 参考 [数据库配置](#数据库配置) 配置数据库。
+
+8. 打开 `appsettings.json` 文件，参考 [配置文件](#配置文件) 修改程序配置。
+
+9. 运行程序。
+
+### 从 Dev 版构建启动
+
+Dev Build 从 `dev` 分支编译发行，包含最新且可能未经测试的更改，无法保证稳定性，请仅在测试环境使用。
+
+1. 安装 [ASP.NET Core 运行时 10.0 或更高版本](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)。
+
+2. 前往 Dev Build Action 页面: [Dev Build Action](https://github.com/ltyyb/SurveyBackend/actions/workflows/dev-build.yml)。
+
+3. 选择最新一次运行记录。
+
+4. 在底部找到 `Artifacts`, 根据操作系统环境选择构建版本 `SurveyBackend-x.x.x+abcdefg-xxxxxxx-x64-x64`, 例如 Linux 环境选择 `SurveyBackend-4.2.1+c07af04-linux-x64-x64`，Windows 选择 `SurveyBackend-4.2.1+c07af04-win-x64-x64`。
+
+5. 点击下载按钮下载构建包。
+
+6. 解压到服务器任意目录下。
+
+7. 参考 [数据库配置](#数据库配置) 配置数据库。
+
+8. 打开 `appsettings.json` 文件，参考 [配置文件](#配置文件) 修改程序配置。
+
+9. 运行程序。
+
+### 从源代码中启动
+
+请确保您已安装[.NET SDK 10.0 或更高版本](https://dotnet.microsoft.com/zh-cn/download/dotnet/10.0)。
+
+您可以自行选择分支并克隆:
+
+```bash
+git clone -b <branch> https://github.com/SurveyBackend/SurveyBackend.git
+```
+
+导航至主项目:
+
+```bash
+cd SurveyBackend/SurveyBackend
+```
+
+参考 [数据库配置](#数据库配置) 和 [配置文件](#配置文件) 配置数据库和 `appsettings` .
+
+构建并运行程序:
+```bash
+dotnet run
+```
 
 
 ## 数据库配置
 
-本项目使用 MySQL 作为数据库。将由 EF Core 自动管理。 
+本项目使用 MySQL 作为数据库。将由 EF Core 自动管理，但不会自动进行迁移操作。 
 
 请执行以下命令生成迁移 SQL 指令:
 ```bash
@@ -30,6 +95,8 @@ dotnet ef migrations script -o ./migrations.sql
 
 > [!WARNING]
 > 本项目使用 `MySql.EntityFrameworkCore` 作为 EF Core Provider, 该 Provider 无法正常生成幂等的 SQL 脚本，因此请使用干净的 MySQL 数据库执行迁移脚本。必要时请检查生成的 `migrations.sql` 文件，确保其中的 SQL 指令符合预期。
+> 
+> 运行脚本前请务必做好备份！！
 
 > 当 [Pomelo.EntityFrameworkCore.MySql](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql) 适配 EF Core 10.0 后，我们计划迁移到该 Provider，以获得更好的性能和更稳定的迁移支持。
 
@@ -53,25 +120,29 @@ dotnet ef migrations script -o ./migrations.sql
 
   // 数据库连接字符串
   "ConnectionStrings": {
-    "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;SslMode=Required"
+    "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;charset=utf8mb4;SslMode=Required"
   }, // 可以修改SslMode为None以禁用SSL连接
 
   // 符合 OneBot v11 标准的 QQ 机器人配置
   // 连接方式为反向ws连接, 即本程序启动ws服务器供 OneBot 协议端连接
   "Bot": {
-      "accessToken": "<Your AccessToken>", // ws连接的accessToken
-      "wsPort": 21568, // ws服务器端口
-      "mainGroupId": "23********1", // 主群号, 更多信息请参考审核流程参照
-      "verifyGroupId": "21******59", // 审核群群号, 更多信息请参考审核流程参照
-      "adminId": "56******0" // 管理员ID
+    "accessToken": "<Your AccessToken>", // ws连接的accessToken, 你可以自己定义
+    "wsPort": 21568, // ws服务器端口
+    "mainGroupId": "23********1", // 主群号, 更多信息请参考审核流程参照
+    "verifyGroupId": "21******59", // 审核群群号, 更多信息请参考审核流程参照
+    "adminId": "56******0" // 管理员ID，将自动在users表中设置身份组为 SuperAdmin
   },
 
   // AI 见解配置
   "LLM": {
-      "ModelName": "gpt-4.1", // 使用的 OpenAI 模型名称
-      "OpenAIKey": "sk-****************************", // OpenAI API Key
-      "OpenAIEndpoint": "https://api.openai.com/v1", // OpenAI API 基础地址
-      "SysPromptPath": "sysPrompt.txt" // 系统提示词文件路径
+    "ModelName": "gpt-4.1", // 使用的 OpenAI 模型名称
+    "OpenAIKey": "sk-****************************", // OpenAI API Key
+    "OpenAIEndpoint": "https://api.openai.com/v1", // OpenAI API 基础地址
+    "SysPromptPath": "sysPrompt.txt" // 系统提示词文件路径
+  },
+  "API": {
+    "Endpoint": "https://api.example.com/", // 后端 API 基础地址, 暂时无用，可保留此示例字段
+    "SurveyLinkEndpoint": "https://example.com/survey/" // 问卷链接基础地址，请在此链接放置你的问卷填写前端页面
   },
   
   // 是否暂停服务
@@ -98,30 +169,32 @@ dotnet ef migrations script -o ./migrations.sql
 
 1. 新用户加入审核群 V , 发送 `/survey start`
 
-2. 本程序尝试为该 QQ 号注册随机的 UserId 并写入数据库 (如果已存在则直接在数据库中查询)。
+2. 后端查询数据库，获取所有 `IsVerifySurvey == true` 的 Survey, 如有多个则要求用户选择，如 `/survey start 2`；如仅单个则跳过。
 
-3. 回复给用户一个已经配置好 UserId 参数的问卷填写链接。
+3. 本程序尝试为该 QQ 号注册随机的 UserId 并写入数据库 (如果已存在则直接在数据库中查询)。
 
-4. 用户打开链接，前端向后端请求问卷题面，后端向前端提供最新版本的问卷题面。前端 `Survey.js` 渲染问卷。用户填写问卷。
+4. 后端生成一个 Request 并写入数据库, 这个 Request 记录将记录用户，并把 RequestId 和 Survey 最新的 Questionnaire 的 Id 包装进 URL 参数中，将链接发送给用户。
 
-5. 用户点击提交问卷后，前端将 UserId 、问卷版本、填写结果 POST 给后端。后端将结果写入数据库，并生成一个 Response ID。
+5. 用户打开链接，前端向后端请求问卷题面，后端向前端提供最新版本的问卷题面。前端 `Survey.js` 渲染问卷。用户填写问卷。
 
-6. 如果 AI 见解可用，将同时生成 AI 见解并存入数据库。
+6. 用户点击提交问卷后，前端将 UserId 、QuestionnaireId、填写结果 POST 给后端。后端将结果写入数据库，并生成一个 Response ID。
 
-7. 后端通过机器人 B 执行如下操作：
+7. 如果 AI 见解可用，将同时生成 AI 见解并存入数据库。
+
+8. 后端通过机器人 B 执行如下操作：
     - 在 V 中向用户发送提交成功的消息
     - 在 M 中推送问卷审阅链接与投票指令等
     - 在 M 中推送 AI 见解（如果可用）
 
-8. 用户等待审核结果。
+9. 用户等待审核结果。
 
 ### 主群用户投票流程
 
 1. 主群 M 中的已审核用户收到新提交推送，可以打开链接查看新用户的提交结果。
 
-2. 主群 M 中的已审核用户可以发送 `/survey vote <ResponseId> a` (同意) 或 `/survey vote <ResponseId> d` (拒绝) 指令进行投票。
+2. 主群 M 中的已审核用户可以发送 `/survey vote <SubmissionId> a` (同意) 或 `/survey vote <SubmissionId> d` (拒绝) 指令进行投票。
 
-3. 后端收到信息，判断是否为短的8位 ResponseId ，如果是则转换为完整的 ResponseId。随后将投票纪录写入数据库。
+3. 后端收到信息，判断是否为短的8位 SubmissionId ，如果是则转换为完整的 SubmissionId。随后将投票纪录写入数据库。
 
 4. 向用户推送投票成功反馈。
 
@@ -131,11 +204,8 @@ dotnet ef migrations script -o ./migrations.sql
 
 该后台服务每隔3小时执行一轮如下检查: 
 
-  1. 每隔 10 分钟检查一次 `entrancesurveyresponses` 表，查找 `IsPushed=0` 的提交。
-  2. 对于每一条未推送的提交，执行步骤 7 中的推送操作，并将 `IsPushed` 标记为 1。
-
-  3. 每隔 10 分钟检查一次 `entrancesurveyresponses` 表，查找 `IsReviewed=0` 的提交，计算其在 `response_votes` 表中的投票结果。
-  4. 对于每一条未审核的提交，执行步骤 7 中的推送操作。
+  1. 每隔 10 分钟检查一次 `ReviewSubmissions` DbSet，查找 `r.Status == ReviewStatus.Pending` 的所有提交。
+  2. 对于每一条未审核的提交，再次将审核消息推送到主群以达到催审目的。
 
 每次循环时，如果出现以下情况可能影响推送节律: 
 
@@ -149,23 +219,25 @@ dotnet ef migrations script -o ./migrations.sql
 
 **未审核问卷判定检查**
 
-  1. 检查 `entrancesurveyresponses` 表，查找 `IsReviewed=0` 的提交，计算其在 `response_votes` 表中的投票结果。
+  1. 检查 `ReviewSubmissions` DbSet，查找 `r.Status == ReviewStatus.Pending` 的提交，计算其在 `ReviewVotes` 表中的投票结果。
   2. 对于每一条未审核的提交，计算其同意票与拒绝票的数量。
-  3. 如果总投票数超过 5 (至少 6) 张，尝试计算同意率。
+  3. 如果总投票数 ≥ 5 张，尝试计算同意率。
   4. 如果同意率达到 60% 以上，则判定审核通过，否则不通过。
-  5. 无论结果如何，均将 `IsReviewed` 标记为 1。
-  6. 如果审核通过，执行如下操作: 
-      - 向 `qqusers` 表中将该用户的 `IsVerified` 标记为 1。
+  5. 如果审核通过，执行如下操作: 
+      - 将 `r.Status` 设置为 `ReviewStatus.Approved`
+      - 将该用户的 `UserGroup` 设置为 `UserGroup.VerifiedUser`。
       - 通过机器人 B 向用户发送审核通过消息，并附上主群 M 的群号
-  7. 如果审核未通过，执行如下操作: 
+  6. 如果审核未通过，执行如下操作: 
+      - 将 `r.Status` 设置为 `ReviewStatus.Rejected`
+      - 将该用户的 `UserGroup` 设置为 `UserGroup.NewComer`。
       - 通过机器人 B 向用户发送审核未通过消息。
       - 将该问卷提交记录添加到待删除提交列表中，并记录目标删除时间（当前时间 + 24 小时），在 24 小时后通过下方的清理流程删除。 
 
 **审核未通过问卷清理**
 
   1. 检查待删除提交列表，查找目标删除时间小于当前时间的提交。
-  2. 对于每条将删除提交，将直接从 `entrancesurveyresponses` 表中删除该提交记录。
-  3. 由于 `response_votes` 表中存在外键约束，相关的投票记录也会被级联删除。
+  2. 对于每条将删除提交，将直接从 `Submissions` 表中删除该提交记录。
+  3. 由于其它表中设置了 `DeleteBehavior.Cascade`，相关的记录也会被级联删除。
 
 ## AI 见解 (LLM Insight)
 
@@ -204,6 +276,8 @@ dotnet ef migrations script -o ./migrations.sql
 > 但你需要手动设置 User Secret 以及写入程序的系统提示词等配置并在调试环境下进行测试。
 >
 > 详见[`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md)
+> 
+> v4 后没时间改 `Utilities` 项目了，所以可能得等等。。
 
 ## 许可证
 
