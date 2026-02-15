@@ -110,5 +110,41 @@ ALTER TABLE `questionnaires` ADD CONSTRAINT `FK_questionnaires_surveys_SurveyId`
 INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
 VALUES ('20260212102856_AddSurveyStructure', '10.0.2');
 
+ALTER TABLE `questionnaires` ADD `LLMPageNames` json NULL;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260215200921_AddLLMPageNames', '10.0.2');
+
+ALTER TABLE `questionnaires` DROP CONSTRAINT `FK_questionnaires_surveys_SurveyId`;
+
+ALTER TABLE `requests` DROP CONSTRAINT `FK_requests_users_UserId`;
+
+ALTER TABLE `review_submissions` DROP CONSTRAINT `FK_review_submissions_submissions_SubmissionId`;
+
+ALTER TABLE `review_votes` DROP CONSTRAINT `FK_review_votes_review_submissions_ReviewSubmissionDataId`;
+
+ALTER TABLE `review_votes` DROP CONSTRAINT `FK_review_votes_users_UserId`;
+
+ALTER TABLE `submissions` DROP CONSTRAINT `FK_submissions_questionnaires_QuestionnaireId`;
+
+ALTER TABLE `submissions` DROP CONSTRAINT `FK_submissions_users_UserId`;
+
+ALTER TABLE `questionnaires` ADD CONSTRAINT `FK_questionnaires_surveys_SurveyId` FOREIGN KEY (`SurveyId`) REFERENCES `surveys` (`SurveyId`) ON DELETE CASCADE;
+
+ALTER TABLE `requests` ADD CONSTRAINT `FK_requests_users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`UserId`) ON DELETE CASCADE;
+
+ALTER TABLE `review_submissions` ADD CONSTRAINT `FK_review_submissions_submissions_SubmissionId` FOREIGN KEY (`SubmissionId`) REFERENCES `submissions` (`SubmissionId`) ON DELETE CASCADE;
+
+ALTER TABLE `review_votes` ADD CONSTRAINT `FK_review_votes_review_submissions_ReviewSubmissionDataId` FOREIGN KEY (`ReviewSubmissionDataId`) REFERENCES `review_submissions` (`ReviewSubmissionDataId`) ON DELETE CASCADE;
+
+ALTER TABLE `review_votes` ADD CONSTRAINT `FK_review_votes_users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`UserId`) ON DELETE CASCADE;
+
+ALTER TABLE `submissions` ADD CONSTRAINT `FK_submissions_questionnaires_QuestionnaireId` FOREIGN KEY (`QuestionnaireId`) REFERENCES `questionnaires` (`QuestionnaireId`) ON DELETE CASCADE;
+
+ALTER TABLE `submissions` ADD CONSTRAINT `FK_submissions_users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`UserId`) ON DELETE CASCADE;
+
+INSERT INTO `__EFMigrationsHistory` (`MigrationId`, `ProductVersion`)
+VALUES ('20260215210633_SetCascadeDeleteBehavior', '10.0.2');
+
 COMMIT;
 
