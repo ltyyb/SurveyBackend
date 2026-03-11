@@ -62,9 +62,9 @@ namespace SurveyBackend
                     continue;
                 }
                 TimeSpan timeDifference = DateTime.Now - _onebot.LastMessageTime;
-                if (timeDifference.TotalHours > 48)
+                if (timeDifference.TotalHours > 24)
                 {
-                    _logger.LogInformation("上次收到消息距离已达2天，将跳过本次推送。");
+                    _logger.LogInformation("上次收到消息距离已达1天，将跳过本次推送。");
                     await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
                     continue;
                 }
