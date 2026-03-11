@@ -105,9 +105,9 @@ namespace SurveyBackend
                                                      .ToListAsync(cancellationToken);
                     var agreeCount = votes.Count(v => v.VoteType == VoteType.Upvote);
                     var denyCount = votes.Count(v => v.VoteType == VoteType.Downvote);
-                    if (agreeCount + denyCount < 5)
+                    if (agreeCount + denyCount < 4)
                     {
-                        _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足，跳过审核。", submission.SubmissionId);
+                        _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足({0} : {1})，跳过审核。", submission.SubmissionId, agreeCount, denyCount);
                         continue;
                     }
                     float agreeRate = (float)agreeCount / (agreeCount + denyCount);
