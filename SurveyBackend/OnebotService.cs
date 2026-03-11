@@ -92,8 +92,8 @@ namespace SurveyBackend
 
         public bool IsDisabled { get; set; } = false;
 
-        public HttpApiClient? onebotApi {get; private set; }
-        
+        public HttpApiClient? onebotApi { get; private set; }
+
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
@@ -104,7 +104,7 @@ namespace SurveyBackend
             _configuration = configuration;
             _scopeFactory = scopeFactory;
         }
-        
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Onebot 后台服务已启动, 正在初始化配置...");
@@ -148,7 +148,7 @@ namespace SurveyBackend
             if (string.IsNullOrWhiteSpace(_configuration["Bot:adminId"]))
             {
                 _logger.LogError("管理员QQ号未配置。请前往 appsettings.json 配置 \"Bot:adminId\" 为管理员QQ号。");
-                return; 
+                return;
             }
             if (!long.TryParse(_configuration["Bot:mainGroupId"], out mainGroupId))
             {
@@ -256,7 +256,7 @@ namespace SurveyBackend
                 {
                     if (!IsAvailable)
                     {
-                        _logger.LogInformation("WebSocket连接已建立, 收到事件。\n{e}" ,e.ToString());
+                        _logger.LogInformation("WebSocket连接已建立, 收到事件。\n{e}", e.ToString());
                     }
                     IsAvailable = true;
                 };
@@ -266,7 +266,12 @@ namespace SurveyBackend
                 };
                 listener.MessageEvent += async (api, e) =>
                 {
-                    LastMessageTime = DateTime.Now;
+                    if (e is GroupMessage groupMsg
+                        && groupMsg.GroupId == mainGroupId
+                        && e.UserId != e.SelfId)
+                    {
+                        LastMessageTime = DateTime.Now;
+                    }
                     var cmdResponse = await _commandRegistry.TryExecuteSurveyCommandAsync(e, stoppingToken);
                     if (cmdResponse is not null)
                     {
@@ -287,7 +292,7 @@ namespace SurveyBackend
                 listener.GroupRequestEvent += (api, e) =>
                 {
                     _logger.LogInformation("收到群请求: {groupId} 来自 {userId}", e.GroupId, e.UserId);
-                    
+
                     if (e.GroupId != mainGroupId) return true;
                     // 验证是否已审核
                     if (IsVerified(e.UserId.ToString()))
@@ -313,7 +318,7 @@ namespace SurveyBackend
                 {
                     _logger.LogInformation("未连接 OneBot 实现 | OneBot 后台服务运行中：{time}", DateTimeOffset.Now);
                 }
-                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // 每1分钟执行一次
+                await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
             }
 
             _logger.LogInformation("后台服务已停止");
@@ -1220,7 +1225,7 @@ namespace SurveyBackend
         //             return false;
         //         }
         //     }
-            
+
 
         //     var link = $
 
@@ -1303,7 +1308,7 @@ namespace SurveyBackend
 
         //                 已成功注册 Survey 用户。
         //                 请访问链接下方链接:
-                        
+
         //                 {link}
 
         //                 完成问卷。
