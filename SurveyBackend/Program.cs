@@ -24,12 +24,19 @@ namespace SurveyBackend
             }
 
             builder.Services.AddDbContextPool<MainDbContext>(options =>
+            {
                 options.UseMySQL(conn, opt =>
                 {
                     opt.CommandTimeout(60);
                     opt.EnableRetryOnFailure(5);
-                })
-            );
+                });
+                options.EnableDetailedErrors();
+                if (builder.Environment.IsDevelopment())
+                {
+                    options.EnableSensitiveDataLogging();
+                    options.LogTo(Console.WriteLine, LogLevel.Information);
+                }
+            });
             builder.Services.AddCors(options =>
             {
                 options.AddPolicy("AllowAll", builder =>
