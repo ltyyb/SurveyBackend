@@ -236,7 +236,8 @@ namespace SurveyBackend
                 new SetReviewCommand(_scopeFactory),
                 new SetReviewStatusCommand(_scopeFactory),
                 new SysInfoCommand(_scopeFactory),
-                new InfoCommand(_scopeFactory)
+                new InfoCommand(_scopeFactory),
+                new CheckCommand(_scopeFactory),
 
             };
             foreach (var handler in commandHandlers)
