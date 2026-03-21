@@ -119,11 +119,13 @@ namespace SurveyBackend.Controllers
                     // 需要审核，创建审核数据记录
                     var reviewSubmissionData = new ReviewSubmissionData { Submission = submission };
                     _db.ReviewSubmissions.Add(reviewSubmissionData);
+                    if (submission.Questionnaire.Survey.IsVerifySurvey) user.UserGroup = UserGroup.PendingUser;
                     await _db.SaveChangesAsync();
                     // 生成AI见解
                     await GenerateInsight(reviewSubmissionData);
                     // 推送到群组
                     await PushResponse(reviewSubmissionData);
+
                 }
 
 

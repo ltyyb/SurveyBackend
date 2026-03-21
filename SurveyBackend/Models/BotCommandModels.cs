@@ -73,48 +73,59 @@ namespace SurveyBackend.Models
 
         public async Task<CommandResponse?> TryExecuteSurveyCommandAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
-            var message = context.Content.Text ?? string.Empty;
-            var trimmedMessage = message.Trim();
-
-            // 检查是否以 /survey 开头
-            if (!trimmedMessage.StartsWith(CMD_PREFIX, StringComparison.OrdinalIgnoreCase))
+            
+            try
             {
-                return null;
-            }
+                var message = context.Content.Text ?? string.Empty;
+                var trimmedMessage = message.Trim();
 
-            // 去掉前缀，获取实际命令
-            var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
-
-            using var scope = _serviceScopeFactory.CreateScope();
-            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-            var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                        .SingleOrDefaultAsync(cancellationToken);
-            var userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
-            // 如果只有前缀没有命令，显示帮助
-            if (string.IsNullOrWhiteSpace(commandContent))
-            {
-                return CommandResponse.SuccessResponse(new Message(GetHelpMessage(userGroup)));
-
-            }
-
-            // 拆分命令和参数（支持引号包裹的参数）
-            var parts = ParseCommandParts(commandContent);
-            var cmdName = parts[0].ToLower();
-            var args = parts.Skip(1).ToArray();
-
-            if (_handlers.TryGetValue(cmdName, out var handler))
-            {
-                if (handler is IAsyncCommandHandler asyncHandler)
+                // 检查是否以 /survey 开头
+                if (!trimmedMessage.StartsWith(CMD_PREFIX, StringComparison.OrdinalIgnoreCase))
                 {
-                    return await asyncHandler.ExecuteAsync(context, args, cancellationToken);
+                    return null;
                 }
 
-                return handler.Execute(context, args);
+                // 去掉前缀，获取实际命令
+                var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
+                                            .SingleOrDefaultAsync(cancellationToken);
+                var userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
+
+                // 如果只有前缀没有命令，显示帮助
+                if (string.IsNullOrWhiteSpace(commandContent))
+                {
+                    return CommandResponse.SuccessResponse(new Message(GetHelpMessage(userGroup)));
+
+                }
+
+                // 拆分命令和参数（支持引号包裹的参数）
+                var parts = ParseCommandParts(commandContent);
+                var cmdName = parts[0].ToLower();
+                var args = parts.Skip(1).ToArray();
+
+                if (_handlers.TryGetValue(cmdName, out var handler))
+                {
+                    if (handler is IAsyncCommandHandler asyncHandler)
+                    {
+                        return await asyncHandler.ExecuteAsync(context, args, cancellationToken);
+                    }
+
+                    return handler.Execute(context, args);
+                }
+
+                // 如果命令不存在，显示帮助
+                return CommandResponse.FailureResponse(new Message(GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"发生命令执行异常: {ex}");
+                return CommandResponse.FailureResponse($"执行命令时发生异常{ex.Message}，请稍后再试或联系管理员。");
             }
 
-            // 如果命令不存在，显示帮助
-            return CommandResponse.FailureResponse(new Message(GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
+
         }
 
         private string GetHelpMessage(UserGroup userGroup, string? customMessage = null)
@@ -136,7 +147,7 @@ namespace SurveyBackend.Models
                 {
                     if (asyncAuthHandler.RequiredPermission.Contains(userGroup))
                     {
-                        helpBuilder.AppendLine($"• [权] {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                        helpBuilder.AppendLine($"↣ {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
                         if (handler.Aliases.Length > 0)
                         {
                             helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
@@ -147,7 +158,7 @@ namespace SurveyBackend.Models
                 {
                     if (authHandler.RequiredPermission.Contains(userGroup))
                     {
-                        helpBuilder.AppendLine($"• [权] {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                        helpBuilder.AppendLine($"↠ {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
                         if (handler.Aliases.Length > 0)
                         {
                             helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");
@@ -156,7 +167,7 @@ namespace SurveyBackend.Models
                 }
                 else
                 {
-                    helpBuilder.AppendLine($"• {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
+                    helpBuilder.AppendLine($"→ {CMD_PREFIX} {handler.CommandName} - {handler.Description}");
                     if (handler.Aliases.Length > 0)
                     {
                         helpBuilder.AppendLine($"  别名: {string.Join(", ", handler.Aliases.Select(a => $"{CMD_PREFIX} {a}"))}");

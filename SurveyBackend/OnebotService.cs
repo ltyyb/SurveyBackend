@@ -269,28 +269,37 @@ namespace SurveyBackend
                 };
                 listener.MessageEvent += async (api, e) =>
                 {
-                    if (e is GroupMessage groupMsg
-                        && groupMsg.GroupId == mainGroupId
-                        && e.UserId != e.SelfId)
+                    try
                     {
-                        LastMessageTime = DateTime.Now;
+                        if (e is GroupMessage groupMsg
+                                && groupMsg.GroupId == mainGroupId
+                                && e.UserId != e.SelfId)
+                        {
+                            LastMessageTime = DateTime.Now;
+                        }
+                        var cmdResponse = await _commandRegistry.TryExecuteSurveyCommandAsync(e, stoppingToken);
+                        if (cmdResponse is not null)
+                        {
+                            if (cmdResponse.Message is not null)
+                            {
+                                await ReplyMessageWithAtAsync(e, cmdResponse.Message);
+                            }
+                            else if (cmdResponse.Success)
+                            {
+                                await ReplyMessageWithAtAsync(e, "指令执行成功。");
+                            }
+                            else
+                            {
+                                await ReplyMessageWithAtAsync(e, "指令执行失败。无更多信息，如必要请询问管理员索要日志。");
+                            }
+                        }
                     }
-                    var cmdResponse = await _commandRegistry.TryExecuteSurveyCommandAsync(e, stoppingToken);
-                    if (cmdResponse is not null)
+                    catch (Exception ex)
                     {
-                        if (cmdResponse.Message is not null)
-                        {
-                            await ReplyMessageWithAtAsync(e, cmdResponse.Message);
-                        }
-                        else if (cmdResponse.Success)
-                        {
-                            await ReplyMessageWithAtAsync(e, "指令执行成功。");
-                        }
-                        else
-                        {
-                            await ReplyMessageWithAtAsync(e, "指令执行失败。无更多信息，如必要请询问管理员索要日志。");
-                        }
+                        _logger.LogError(ex, "处理消息事件时发生异常。");
+                        await ReplyMessageWithAtAsync(e, $"处理消息时发生异常: {ex.Message}，请稍后再试或联系管理员。");
                     }
+
                 };
                 listener.GroupRequestEvent += (api, e) =>
                 {
