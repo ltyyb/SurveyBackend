@@ -238,6 +238,10 @@ namespace SurveyBackend
                 new SysInfoCommand(_scopeFactory),
                 new InfoCommand(_scopeFactory),
                 new CheckCommand(_scopeFactory),
+                new ReviewCommand(_scopeFactory, _configuration),
+                new StasticsCommand(_scopeFactory),
+                new InsightCommand(_scopeFactory),
+                new ReinsightCommand(_scopeFactory, _configuration, _loggerFactory),
 
             };
             foreach (var handler in commandHandlers)

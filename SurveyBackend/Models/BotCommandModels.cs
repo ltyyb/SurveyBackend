@@ -122,7 +122,7 @@ namespace SurveyBackend.Models
             catch (Exception ex)
             {
                 Console.WriteLine($"发生命令执行异常: {ex}");
-                return CommandResponse.FailureResponse($"执行命令时发生异常{ex.Message}，请稍后再试或联系管理员。");
+                return CommandResponse.FailureResponse($"执行命令时发生异常:\n{ex.GetType().FullName}: {ex.Message}\n\n稍后再试或联系管理员。");
             }
 
 
