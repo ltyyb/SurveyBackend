@@ -1822,7 +1822,7 @@ namespace SurveyBackend.Models
         }
 
     }
-
+    // insight 指令
     public class InsightCommand : AuthorizedAsyncCommand
     {
         public override string CommandName => "insight";
@@ -1885,6 +1885,7 @@ namespace SurveyBackend.Models
             }
         }
     }
+    // reinsight 指令
     public class ReinsightCommand : AuthorizedAsyncCommand
     {
         public override string CommandName => "reinsight";
