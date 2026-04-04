@@ -1625,6 +1625,8 @@ namespace SurveyBackend.Models
                 var reviewSubmissions = await db.ReviewSubmissions.Include(r => r.Submission)
                                                                    .ThenInclude(s => s.Questionnaire)
                                                                        .ThenInclude(q => q.Survey)
+                                                                    .Include(r => r.Submission)
+                                                                        .ThenInclude(s => s.User)
                                                                    .Where(r => EF.Functions.Like(r.SubmissionId, submissionId + "%")
                                                                       && r.Submission.Questionnaire.Survey.NeedReview == true)
                                                                    .ToListAsync(cancellationToken);
