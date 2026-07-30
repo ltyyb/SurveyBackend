@@ -1993,7 +1993,7 @@ namespace SurveyBackend.Models
 
     public class DisableSystemCommand : AuthorizedAsyncCommand
     {
-        public override string CommandName => "disbale-system";
+        public override string CommandName => "disable-system";
         public override bool IsSuperCommand => true;
         public override string[] Aliases => ["shutdown", "ds"];
         public override string Description => "使用方法: /survey disable-system \n 临时关闭问卷系统除本命令外的所有调用。带参调用查看详情。";
@@ -2012,15 +2012,15 @@ namespace SurveyBackend.Models
         {
             if (args.Length == 0)
             {
-                if (_surveyCommandRegistry.IsSystemDisabled)
+                if (!_surveyCommandRegistry.IsSystemDisabled)
                 {
-                    _surveyCommandRegistry.IsSystemDisabled = false;
+                    _surveyCommandRegistry.IsSystemDisabled = true;
                     return CommandResponse.SuccessResponse("已成功关闭所有命令路由。再次执行本命令以恢复。");
                 }
                 else
                 {
-                    _surveyCommandRegistry.IsSystemDisabled = true;
-                    return CommandResponse.SuccessResponse("已成功恢复所有命令路由。");
+                    _surveyCommandRegistry.IsSystemDisabled = false;
+                    return CommandResponse.SuccessResponse(messageText: "已成功恢复所有命令路由。");
                 }
             }
             else
