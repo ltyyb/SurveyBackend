@@ -527,12 +527,13 @@ namespace SurveyBackend.Models
             if (args.Length == 2)
             {
                 var submissionIdInput = args[0];
-                var voteInput = args[1].ToLower();
-                if (voteInput != "a" && voteInput != "d")
+                var voteInput = args[1];
+                if (!voteInput.Equals("a", StringComparison.OrdinalIgnoreCase)
+                    && !voteInput.Equals("d", StringComparison.OrdinalIgnoreCase))
                 {
                     return CommandResponse.FailureResponse("❌ 无效的投票选项。请使用 'a' 代表通过，'d' 代表拒绝。");
                 }
-                var isApprove = voteInput == "a";
+                var isApprove = voteInput.Equals("a", StringComparison.OrdinalIgnoreCase);
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -554,10 +555,10 @@ namespace SurveyBackend.Models
                 {
                     return CommandResponse.FailureResponse("❌ 该提交已审核完毕，无法投票。");
                 }
-                var existingVote = await db.ReviewVotes.Include(v => v.User)
-                                                       .Where(v => v.ReviewSubmissionDataId == reviewSubmissionData.ReviewSubmissionDataId
-                                                                && v.User.QQId == context.UserId.ToString())
-                                                       .SingleOrDefaultAsync(cancellationToken);
+                var existingVote = await db.ReviewVotes
+                    .Where(v => v.ReviewSubmissionDataId == reviewSubmissionData.ReviewSubmissionDataId
+                        && v.User.QQId == context.UserId.ToString())
+                    .SingleOrDefaultAsync(cancellationToken);
                 if (existingVote is not null)
                 {
                     existingVote.VoteType = isApprove ? VoteType.Upvote : VoteType.Downvote;
@@ -636,7 +637,7 @@ namespace SurveyBackend.Models
                 {
                     return CommandResponse.FailureResponse("❌ 无效的QQ号。请确保输入的QQ号为数字。");
                 }
-                if (!Enum.TryParse(userGroupInput, true, out UserGroup userGroup) || !Enum.IsDefined(typeof(UserGroup), userGroup))
+                if (!Enum.TryParse(userGroupInput, true, out UserGroup userGroup) || !Enum.IsDefined(userGroup))
                 {
                     return CommandResponse.FailureResponse("❌ 无效的用户组。请使用 VerifiedUser, NewComer, PendingUser, Admin 或 SuperAdmin。");
                 }
@@ -1010,25 +1011,23 @@ namespace SurveyBackend.Models
             if (args.Length == 2)
             {
                 var submissionIdInput = args[0];
-                var statusInput = args[1].ToLower();
-                if (statusInput != "pending" && statusInput != "approved" && statusInput != "rejected")
+                var statusInput = args[1];
+                ReviewStatus newStatus;
+                if (statusInput.Equals("pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Pending;
+                }
+                else if (statusInput.Equals("approved", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Approved;
+                }
+                else if (statusInput.Equals("rejected", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Rejected;
+                }
+                else
                 {
                     return CommandResponse.FailureResponse("❌ 无效的状态选项。请使用 'pending' 代表待审，'approved' 代表通过，'rejected' 代表拒绝。");
-                }
-                ReviewStatus newStatus;
-                switch (statusInput)
-                {
-                    case "pending":
-                        newStatus = ReviewStatus.Pending;
-                        break;
-                    case "approved":
-                        newStatus = ReviewStatus.Approved;
-                        break;
-                    case "rejected":
-                        newStatus = ReviewStatus.Rejected;
-                        break;
-                    default:
-                        return CommandResponse.FailureResponse("❌ 无效的状态选项。请使用 'pending' 代表待审，'approved' 代表通过，'rejected' 代表拒绝。");
                 }
 
                 using var scope = _serviceScopeFactory.CreateScope();
@@ -1118,7 +1117,7 @@ namespace SurveyBackend.Models
                 """;
                 return CommandResponse.SuccessResponse(msg);
             }
-            else if (args.Length == 1 && args[0].ToLower() == "full")
+            else if (args.Length == 1 && args[0].Equals("full", StringComparison.OrdinalIgnoreCase))
             {
                 using var scope = _serviceScopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -1171,7 +1170,7 @@ namespace SurveyBackend.Models
                   操作系统: {os}
                   运行架构: {RuntimeInformation.ProcessArchitecture}
                   机器名称: {Environment.MachineName}
-                  PID : {Process.GetCurrentProcess().Id}
+                  PID : {Environment.ProcessId}
                   运行时长: {(uptime.Days == 0 ? "" : $"{uptime.Days}天")} {uptime.Hours} 小时 {uptime.Minutes} 分钟 {uptime.Seconds} 秒
                   托管堆内存: {memoryUsageMB:F2} MB
                   工作集内存: {Process.GetCurrentProcess().WorkingSet64 / 1024.0 / 1024.0:F2} MB

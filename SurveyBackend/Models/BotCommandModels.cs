@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Reflection.Metadata;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Message = Sisters.WudiLib.SendingMessage;
@@ -83,7 +82,6 @@ namespace SurveyBackend.Models
 
         public async Task<CommandResponse?> TryExecuteSurveyCommandAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
-
             try
             {
                 var message = context.Content.Text ?? string.Empty;
@@ -98,24 +96,20 @@ namespace SurveyBackend.Models
                 // 去掉前缀，获取实际命令
                 var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
 
-                using var scope = _serviceScopeFactory.CreateScope();
-                var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-                var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                            .SingleOrDefaultAsync(cancellationToken);
-                var userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
                 // 如果只有前缀没有命令，显示帮助
                 if (string.IsNullOrWhiteSpace(commandContent))
                 {
                     if (IsSystemDisabled)
                         return CreateSystemDisabledResponse();
                     else
-                        return CommandResponse.SuccessResponse(new Message(GetHelpMessage(userGroup)));
+                        return CommandResponse.SuccessResponse(new Message(
+                            GetHelpMessage(await GetUserGroupAsync(context.UserId, cancellationToken))));
                 }
+
                 // 拆分命令和参数（支持引号包裹的参数）
                 var parts = ParseCommandParts(commandContent);
-                var cmdName = parts[0].ToLower();
-                var args = parts.Skip(1).ToArray();
+                var cmdName = parts[0];
+                var args = parts[1..];
 
                 if (_handlers.TryGetValue(cmdName, out var handler))
                 {
@@ -130,7 +124,9 @@ namespace SurveyBackend.Models
                 }
 
                 // 如果命令不存在，显示帮助
-                return CommandResponse.FailureResponse(new Message(GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
+                var userGroup = await GetUserGroupAsync(context.UserId, cancellationToken);
+                return CommandResponse.FailureResponse(new Message(
+                    GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
             }
             catch (Exception ex)
             {
@@ -140,6 +136,19 @@ namespace SurveyBackend.Models
 
 
         }
+
+        private async Task<UserGroup> GetUserGroupAsync(long userId, CancellationToken cancellationToken)
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var userGroup = await db.Users
+                .Where(u => u.QQId == userId.ToString())
+                .Select(u => (UserGroup?)u.UserGroup)
+                .SingleOrDefaultAsync(cancellationToken);
+
+            return userGroup ?? UserGroup.NewComer;
+        }
+
         private static CommandResponse CreateSystemDisabledResponse()
         {
             return CommandResponse.FailureResponse(
@@ -266,14 +275,12 @@ namespace SurveyBackend.Models
 
         public bool HasPermission(MessageContext context)
         {
-            UserGroup userGroup;
             using var scope = _dbScopeFactory.CreateScope();
-            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-            var user = _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                .SingleOrDefault();
-            userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
-            return RequiredPermission.Contains(userGroup);
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var requiredPermissions = RequiredPermission;
+            return db.Users.Any(u =>
+                u.QQId == context.UserId.ToString()
+                && requiredPermissions.Contains(u.UserGroup));
         }
 
 
@@ -319,9 +326,7 @@ namespace SurveyBackend.Models
         // 同步版本的兼容方法
         public CommandResponse? Execute(MessageContext context, string[] args)
         {
-            var task = ExecuteAsync(context, args);
-            task.Wait();
-            return task.Result;
+            return ExecuteAsync(context, args).GetAwaiter().GetResult();
         }
     }
     // 带权限控制的异步命令基类
@@ -336,14 +341,13 @@ namespace SurveyBackend.Models
 
         public async Task<bool> HasPermissionAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
-            UserGroup userGroup;
             using var scope = _dbScopeFactory.CreateScope();
-            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-            var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                .SingleOrDefaultAsync(cancellationToken);
-            userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
-            return RequiredPermission.Contains(userGroup);
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var requiredPermissions = RequiredPermission;
+            return await db.Users.AnyAsync(
+                u => u.QQId == context.UserId.ToString()
+                    && requiredPermissions.Contains(u.UserGroup),
+                cancellationToken);
         }
         public override sealed async Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
