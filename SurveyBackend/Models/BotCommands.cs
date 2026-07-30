@@ -1,14 +1,14 @@
-using System.Text;
-
-using Message = Sisters.WudiLib.SendingMessage;
-using MessageContext = Sisters.WudiLib.Posts.Message;
-using SurveyBackend;
-using Sisters.WudiLib.Posts;
-using Microsoft.EntityFrameworkCore;
-using Sisters.WudiLib;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json.Linq;
+using Sisters.WudiLib;
+using Sisters.WudiLib.Posts;
+using SurveyBackend;
+using Message = Sisters.WudiLib.SendingMessage;
+using MessageContext = Sisters.WudiLib.Posts.Message;
 namespace SurveyBackend.Models
 {
     // start指令
@@ -85,7 +85,7 @@ namespace SurveyBackend.Models
 
                         o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
                         请访问链接下方链接:
-                        
+
                         {surveyLink}
 
                         完成问卷~
@@ -96,7 +96,7 @@ namespace SurveyBackend.Models
                         ⚠ 请注意看清链接所属用户，请勿填写他人问卷链接。
                         你知道吗？每份问卷链接都对应唯一用户哦~
                         你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
-                        本消息对应用户: 
+                        本消息对应用户:
                         """;
                     var atMessage = Message.At(context.UserId);
                     return CommandResponse.SuccessResponse(new Message(message) + atMessage);
@@ -117,7 +117,7 @@ namespace SurveyBackend.Models
 
                         o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
                         请访问链接下方链接:
-                        
+
                         {surveyLink}
 
                         完成问卷~
@@ -131,7 +131,7 @@ namespace SurveyBackend.Models
                         ⚠ 请注意看清链接所属用户，请勿填写他人问卷链接。
                         你知道吗？每份问卷链接都对应唯一用户哦~
                         你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
-                        本消息对应用户: 
+                        本消息对应用户:
                         """;
                     var atMessage = Message.At(context.UserId);
                     return CommandResponse.SuccessResponse(new Message(message) + atMessage);
@@ -527,12 +527,13 @@ namespace SurveyBackend.Models
             if (args.Length == 2)
             {
                 var submissionIdInput = args[0];
-                var voteInput = args[1].ToLower();
-                if (voteInput != "a" && voteInput != "d")
+                var voteInput = args[1];
+                if (!voteInput.Equals("a", StringComparison.OrdinalIgnoreCase)
+                    && !voteInput.Equals("d", StringComparison.OrdinalIgnoreCase))
                 {
                     return CommandResponse.FailureResponse("❌ 无效的投票选项。请使用 'a' 代表通过，'d' 代表拒绝。");
                 }
-                var isApprove = voteInput == "a";
+                var isApprove = voteInput.Equals("a", StringComparison.OrdinalIgnoreCase);
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -554,10 +555,10 @@ namespace SurveyBackend.Models
                 {
                     return CommandResponse.FailureResponse("❌ 该提交已审核完毕，无法投票。");
                 }
-                var existingVote = await db.ReviewVotes.Include(v => v.User)
-                                                       .Where(v => v.ReviewSubmissionDataId == reviewSubmissionData.ReviewSubmissionDataId
-                                                                && v.User.QQId == context.UserId.ToString())
-                                                       .SingleOrDefaultAsync(cancellationToken);
+                var existingVote = await db.ReviewVotes
+                    .Where(v => v.ReviewSubmissionDataId == reviewSubmissionData.ReviewSubmissionDataId
+                        && v.User.QQId == context.UserId.ToString())
+                    .SingleOrDefaultAsync(cancellationToken);
                 if (existingVote is not null)
                 {
                     existingVote.VoteType = isApprove ? VoteType.Upvote : VoteType.Downvote;
@@ -636,7 +637,7 @@ namespace SurveyBackend.Models
                 {
                     return CommandResponse.FailureResponse("❌ 无效的QQ号。请确保输入的QQ号为数字。");
                 }
-                if (!Enum.TryParse(userGroupInput, true, out UserGroup userGroup) || !Enum.IsDefined(typeof(UserGroup), userGroup))
+                if (!Enum.TryParse(userGroupInput, true, out UserGroup userGroup) || !Enum.IsDefined(userGroup))
                 {
                     return CommandResponse.FailureResponse("❌ 无效的用户组。请使用 VerifiedUser, NewComer, PendingUser, Admin 或 SuperAdmin。");
                 }
@@ -1010,25 +1011,23 @@ namespace SurveyBackend.Models
             if (args.Length == 2)
             {
                 var submissionIdInput = args[0];
-                var statusInput = args[1].ToLower();
-                if (statusInput != "pending" && statusInput != "approved" && statusInput != "rejected")
+                var statusInput = args[1];
+                ReviewStatus newStatus;
+                if (statusInput.Equals("pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Pending;
+                }
+                else if (statusInput.Equals("approved", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Approved;
+                }
+                else if (statusInput.Equals("rejected", StringComparison.OrdinalIgnoreCase))
+                {
+                    newStatus = ReviewStatus.Rejected;
+                }
+                else
                 {
                     return CommandResponse.FailureResponse("❌ 无效的状态选项。请使用 'pending' 代表待审，'approved' 代表通过，'rejected' 代表拒绝。");
-                }
-                ReviewStatus newStatus;
-                switch (statusInput)
-                {
-                    case "pending":
-                        newStatus = ReviewStatus.Pending;
-                        break;
-                    case "approved":
-                        newStatus = ReviewStatus.Approved;
-                        break;
-                    case "rejected":
-                        newStatus = ReviewStatus.Rejected;
-                        break;
-                    default:
-                        return CommandResponse.FailureResponse("❌ 无效的状态选项。请使用 'pending' 代表待审，'approved' 代表通过，'rejected' 代表拒绝。");
                 }
 
                 using var scope = _serviceScopeFactory.CreateScope();
@@ -1109,7 +1108,7 @@ namespace SurveyBackend.Models
                   PID : {Environment.ProcessId}
                   托管内存: {memoryUsageMB:F2} MB (近似值)
                   运行时长: {(uptime.Days == 0 ? "" : $"{uptime.Days}天")} {uptime.Hours} 小时 {uptime.Minutes} 分钟 {uptime.Seconds} 秒
-                
+
                 问卷状态:
                   Surveys 数量: {totalSurveys}
                   Questionnaires 数量: {totalQuestionnaires}
@@ -1118,7 +1117,7 @@ namespace SurveyBackend.Models
                 """;
                 return CommandResponse.SuccessResponse(msg);
             }
-            else if (args.Length == 1 && args[0].ToLower() == "full")
+            else if (args.Length == 1 && args[0].Equals("full", StringComparison.OrdinalIgnoreCase))
             {
                 using var scope = _serviceScopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -1171,7 +1170,7 @@ namespace SurveyBackend.Models
                   操作系统: {os}
                   运行架构: {RuntimeInformation.ProcessArchitecture}
                   机器名称: {Environment.MachineName}
-                  PID : {Process.GetCurrentProcess().Id}
+                  PID : {Environment.ProcessId}
                   运行时长: {(uptime.Days == 0 ? "" : $"{uptime.Days}天")} {uptime.Hours} 小时 {uptime.Minutes} 分钟 {uptime.Seconds} 秒
                   托管堆内存: {memoryUsageMB:F2} MB
                   工作集内存: {Process.GetCurrentProcess().WorkingSet64 / 1024.0 / 1024.0:F2} MB
@@ -1216,7 +1215,7 @@ namespace SurveyBackend.Models
                 使用方法:
                 /survey sysinfo [FULL | DEBUG]
                 加入 FULL 或 DEBUG 标识可以获取更详细的系统状态信息。
-                
+
                 例如:
                 /survey sysinfo
                 /survey sysinfo full
@@ -1261,12 +1260,12 @@ namespace SurveyBackend.Models
                         var submissionsCount = await db.Submissions.CountAsync(s => s.UserId == user.UserId, cancellationToken);
                         string userGroupStr = user.UserGroup switch
                         {
-                            UserGroup.NewComer => "未提交问卷未认证新用户",
-                            UserGroup.PendingUser => "已提交问卷待审核用户",
-                            UserGroup.VerifiedUser => "已认证用户",
-                            UserGroup.Admin => "管理员",
-                            UserGroup.SuperAdmin => "超级管理员",
-                            _ => "未知"
+                            UserGroup.NewComer => "🌱未提交问卷未认证新用户",
+                            UserGroup.PendingUser => "⏳已提交问卷待审核用户",
+                            UserGroup.VerifiedUser => "✅已认证用户",
+                            UserGroup.Admin => "🛡️管理员",
+                            UserGroup.SuperAdmin => "🛠️超级管理员",
+                            _ => "⁉️未知"
                         };
                         var verifySubmission = await db.ReviewSubmissions.Include(r => r.Submission)
                                                                             .ThenInclude(s => s.Questionnaire)
@@ -1416,12 +1415,12 @@ namespace SurveyBackend.Models
                     var submissionsCount = await db.Submissions.CountAsync(s => s.UserId == user.UserId, cancellationToken);
                     string userGroupStr = user.UserGroup switch
                     {
-                        UserGroup.NewComer => "未提交问卷未认证新用户",
-                        UserGroup.PendingUser => "已提交问卷待审核用户",
-                        UserGroup.VerifiedUser => "已认证用户",
-                        UserGroup.Admin => "管理员",
-                        UserGroup.SuperAdmin => "超级管理员",
-                        _ => "未知"
+                        UserGroup.NewComer => "🌱未提交问卷未认证新用户",
+                        UserGroup.PendingUser => "⏳已提交问卷待审核用户",
+                        UserGroup.VerifiedUser => "✅已认证用户",
+                        UserGroup.Admin => "🛡️管理员",
+                        UserGroup.SuperAdmin => "🛠️超级管理员",
+                        _ => "⁉️未知"
                     };
                     var verifySubmission = await db.ReviewSubmissions.Include(r => r.Submission)
                                                                         .ThenInclude(s => s.Questionnaire)
@@ -1456,7 +1455,7 @@ namespace SurveyBackend.Models
                                                                    .ToListAsync(cancellationToken);
                 foreach (var reviewSubmission in reviewSubmissions)
                 {
-                    string reviewStatusMsg = (reviewSubmission.Status) switch
+                    string reviewStatusMsg = reviewSubmission.Status switch
                     {
                         ReviewStatus.Pending => "🟡 审核进行中",
                         ReviewStatus.Approved => "🟢 已通过",
@@ -1517,7 +1516,7 @@ namespace SurveyBackend.Models
                 本命令用于获取某个数据库对象的详细信息。
                 支持对象有: Submission 实例、Questionnaire 实例、Survey 实例、User 实例、ReviewSubmission 实例、Request 实例。
                 同时 id 为纯数字时, 将优先尝试将 ID 解析为 QQ号 并匹配 User 实例。QQ号要求完全匹配。
-                
+
                 使用方法:
                 /survey info [id]
 
@@ -1596,6 +1595,444 @@ namespace SurveyBackend.Models
 
                 仅当您处于待审核用户组时有效，且会自动匹配您提交的审核问卷提交数据。
                 """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+    }
+    // review 指令
+    public class ReviewCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "review";
+        public override string[] Aliases => ["rv"];
+        public override string Description => "使用方法: /survey review [SubmissionId] \n获取一个需审核问卷的审核链接。SubmissionId 可以简写。";
+        public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IConfiguration _configuration;
+        public ReviewCommand(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _configuration = configuration;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 1)
+            {
+                var submissionId = args[0];
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var reviewSubmissions = await db.ReviewSubmissions.Include(r => r.Submission)
+                                                                   .ThenInclude(s => s.Questionnaire)
+                                                                       .ThenInclude(q => q.Survey)
+                                                                    .Include(r => r.Submission)
+                                                                        .ThenInclude(s => s.User)
+                                                                   .Where(r => EF.Functions.Like(r.SubmissionId, submissionId + "%")
+                                                                      && r.Submission.Questionnaire.Survey.NeedReview == true)
+                                                                   .ToListAsync(cancellationToken);
+                if (reviewSubmissions.Count == 0)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到对应的审核问卷提交数据，请检查 Submission ID 是否正确，且该提交所属问卷为 NeedReview Survey。");
+                }
+                if (reviewSubmissions.Count > 1)
+                {
+                    return CommandResponse.FailureResponse("❌ 找到多个匹配的审核问卷提交数据，请提供更完整的 Submission ID 以获得准确匹配。");
+                }
+                var reviewSubmission = reviewSubmissions[0];
+                var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
+                // 统一端点格式
+                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
+                                    ? surveyLinkEndpoint
+                                    : surveyLinkEndpoint + "/";
+                string reviewLink = $"{surveyLinkEndpoint}?review=true&questionnaireId={reviewSubmission.Submission.QuestionnaireId}&submissionId={reviewSubmission.SubmissionId}";
+                string msg = $"""
+                        审核链接: {reviewLink}
+
+                        Submission ID: {reviewSubmission.SubmissionId}
+                        用户 QQ: {reviewSubmission.Submission.User.QQId}
+                        作答的 Questionnaire ID: {reviewSubmission.Submission.QuestionnaireId} ({reviewSubmission.Submission.Questionnaire.ReleaseDate})
+                        关联问卷: {reviewSubmission.Submission.Questionnaire.Survey.Title} ({reviewSubmission.Submission.Questionnaire.Survey.SurveyId})
+                        提交时间: {reviewSubmission.Submission.CreatedAt}
+                        """;
+                return CommandResponse.SuccessResponse(new Message(msg));
+            }
+            else
+            {
+                var msg = """
+                参数不正确。
+                本命令用于获取一个需审核问卷的审核链接。
+
+                使用方法:
+                /survey review [SubmissionId]
+
+                其中 SubmissionId 为需要审核的问卷提交的 SubmissionId，支持前缀匹配但应尽可能使用完整 SubmissionId 以获得准确匹配。该提交所属的问卷必须为 NeedReview Survey。
+                该命令会返回一个审核链接，点击后可以进入审核界面进行审核操作。
+                """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+
+    }
+    // stastics 指令
+    public class StasticsCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "stastics";
+        public override string[] Aliases => ["stats"];
+        public override string Description => "使用方法: /survey stastics [SurveyId | QuestionnaireId] [all | 问题names | page:页面names]\n 获取某个Survey或Questionnaire的统计数据。不带参使用以获取更多提示。";
+        public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        public StasticsCommand(IServiceScopeFactory serviceScopeFactory) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length is 1 or 2)
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var id = args[0];
+                var surveys = await db.Surveys.Where(s => EF.Functions.Like(
+                                                            s.SurveyId,
+                                                            id + "%"))
+                                             .ToListAsync(cancellationToken);
+                var questionnaires = await db.Questionnaires.Include(q => q.Survey)
+                                                            .Where(q => EF.Functions.Like(
+                                                                q.QuestionnaireId,
+                                                                id + "%"))
+                                                            .ToListAsync(cancellationToken);
+                if (surveys.Count == 0 && questionnaires.Count == 0)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到匹配的 Survey 或 Questionnaire，请检查输入的 ID 是否正确，并尽可能提供更完整的 ID 以获得准确匹配。");
+                }
+
+                var matchedSurvey = surveys.SingleOrDefault(s => s.SurveyId == id);
+                var matchedQuestionnaire = questionnaires.SingleOrDefault(q => q.QuestionnaireId == id);
+
+                if (matchedSurvey is not null && matchedQuestionnaire is not null)
+                {
+                    return CommandResponse.FailureResponse("❌ ID 同时匹配到了 Survey 与 Questionnaire，请提供更完整的 ID。");
+                }
+
+                if (matchedSurvey is null && matchedQuestionnaire is null)
+                {
+                    if (surveys.Count > 1)
+                    {
+                        return CommandResponse.FailureResponse("❌ 找到多个匹配的 Survey，请提供更完整的 ID。");
+                    }
+                    if (questionnaires.Count > 1)
+                    {
+                        return CommandResponse.FailureResponse("❌ 找到多个匹配的 Questionnaire，请提供更完整的 ID。");
+                    }
+                    if (surveys.Count == 1 && questionnaires.Count == 0)
+                    {
+                        matchedSurvey = surveys[0];
+                    }
+                    else if (questionnaires.Count == 1 && surveys.Count == 0)
+                    {
+                        matchedQuestionnaire = questionnaires[0];
+                    }
+                    else
+                    {
+                        return CommandResponse.FailureResponse("❌ 无法唯一确定目标对象，请提供更完整的 ID。");
+                    }
+                }
+
+                string[]? questionNames = null;
+                string[]? pageNames = null;
+                var usePageFilter = false;
+
+                if (args.Length == 2 && !string.Equals(args[1], "all", StringComparison.OrdinalIgnoreCase))
+                {
+                    var rawFilter = args[1].Trim();
+                    if (rawFilter.StartsWith("page:", StringComparison.OrdinalIgnoreCase) ||
+                        rawFilter.StartsWith("pages:", StringComparison.OrdinalIgnoreCase) ||
+                        rawFilter.StartsWith("p:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var splitIndex = rawFilter.IndexOf(':');
+                        var pageValue = splitIndex >= 0 ? rawFilter[(splitIndex + 1)..] : string.Empty;
+                        pageNames = pageValue
+                            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Where(x => !string.IsNullOrWhiteSpace(x))
+                            .ToArray();
+
+                        if (pageNames.Length == 0)
+                        {
+                            return CommandResponse.FailureResponse("❌ 页面筛选器为空。请使用 page:页面1,页面2。");
+                        }
+                        usePageFilter = true;
+                    }
+                    else
+                    {
+                        questionNames = rawFilter
+                            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Where(x => !string.IsNullOrWhiteSpace(x))
+                            .ToArray();
+
+                        if (questionNames.Length == 0)
+                        {
+                            return CommandResponse.FailureResponse("❌ 题目筛选器为空，请输入至少一个问题 name，或使用 all。");
+                        }
+                    }
+                }
+                var tool = new SurveyStatisticsTool(db);
+                string report;
+
+                if (matchedSurvey is not null)
+                {
+                    report = usePageFilter
+                        ? await tool.BuildReportByPageNamesAsync(matchedSurvey, pageNames!, "zh-cn", cancellationToken)
+                        : await tool.BuildReportAsync(matchedSurvey, questionNames, "zh-cn", cancellationToken);
+                }
+                else if (matchedQuestionnaire is not null)
+                {
+                    report = usePageFilter
+                        ? await tool.BuildReportByPageNamesAsync(matchedQuestionnaire, pageNames!, "zh-cn", cancellationToken)
+                        : await tool.BuildReportAsync(matchedQuestionnaire, questionNames, "zh-cn", cancellationToken);
+                }
+                else
+                {
+                    return CommandResponse.FailureResponse("❌ 未知错误：目标对象为空。");
+                }
+
+                return CommandResponse.SuccessResponse(report);
+            }
+            else
+            {
+                var msg = """
+                参数不正确。
+                本命令用于获取某个Survey或Questionnaire的统计数据。
+
+                使用方法:
+                /survey stastics [SurveyId | QuestionnaireId] [筛选的问题names]
+                /survey stastics [SurveyId | QuestionnaireId] [all]
+                /survey stastics [SurveyId | QuestionnaireId] [page:页面1,页面2]
+
+                其中 SurveyId 或 QuestionnaireId 支持前缀匹配但应尽可能使用完整 ID 以获得准确匹配。
+                该命令会返回该 Survey 或 Questionnaire 的问卷统计数据。
+
+                你可以提供一个问题筛选器，用以指定你想要统计的题目。筛选器是一个逗号分隔的问题名称列表，应以引号包裹。例如 "问题1,问题2"。
+                你也可以使用 all 表示统计所有可识别题目。
+                你还可以使用 page:页面名列表 按页面统计其中所有题目。例如 "page:1,2,3"。
+                page 过滤依据 SurveyJS 中 page.name 字段。
+                问题的name以 SurveyJS 定义的 name 字段为准，你可以通过查看问卷的 JSON 定义来获取问题的 name。
+
+                更多信息请查阅文档或联系管理员。
+                """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+
+    }
+    // insight 指令
+    public class InsightCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "insight";
+        public override string Description => "使用方法: /survey insight [SubmissionId] \n 获取指定问卷提交的AI分析。SubmissionId 可以简写。";
+        public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        public InsightCommand(IServiceScopeFactory serviceScopeFactory) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 1)
+            {
+                var submissionId = args[0];
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var submissions = await db.Submissions.Include(s => s.User)
+                                                     .Include(s => s.Questionnaire)
+                                                        .ThenInclude(q => q.Survey)
+                                                     .Where(s => EF.Functions.Like(
+                                                        s.SubmissionId,
+                                                        submissionId + "%"))
+                                                     .ToListAsync(cancellationToken);
+                if (submissions.Count == 0)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到对应的问卷提交数据，请检查 Submission ID 是否正确。");
+                }
+                if (submissions.Count > 1)
+                {
+                    return CommandResponse.FailureResponse("❌ 找到多个匹配的问卷提交数据，请提供更完整的 Submission ID 以获得准确匹配。");
+                }
+                var submission = submissions[0];
+                var reviewData = await db.ReviewSubmissions.Where(r => r.SubmissionId == submission.SubmissionId)
+                                               .SingleOrDefaultAsync(cancellationToken);
+                if (reviewData is null)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到对应的审核数据，可能该问卷非审核问卷。");
+                }
+                var insight = reviewData.AIInsights;
+                if (string.IsNullOrEmpty(insight) || insight == "不可用")
+                {
+                    return CommandResponse.FailureResponse("❌ AI分析尚未完成或不可用。");
+                }
+                return CommandResponse.SuccessResponse(insight);
+            }
+            else
+            {
+                var msg = """
+                    参数不正确。
+                    本命令用于获取指定问卷提交已有的AI分析。
+
+                    使用方法:
+                    /survey insight [SubmissionId]
+                    SubmissionId 可以简写。
+
+                    更多信息请查阅文档或联系管理员。
+                    """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+    }
+    // reinsight 指令
+    public class ReinsightCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "reinsight";
+        public override string Description => "使用方法: /survey reinsight [SubmissionId] \n 重新生成指定问卷提交的AI分析。SubmissionId 可以简写。";
+        public override UserGroup[] RequiredPermission => [UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly IConfiguration _configuration;
+        private readonly ILoggerFactory _loggerFactory;
+        public ReinsightCommand(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration, ILoggerFactory loggerFactory) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _configuration = configuration;
+            _loggerFactory = loggerFactory;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 1)
+            {
+                var submissionId = args[0];
+                using var scope = _serviceScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+                var submissions = await db.Submissions.Include(s => s.User)
+                                                     .Include(s => s.Questionnaire)
+                                                        .ThenInclude(q => q.Survey)
+                                                     .Where(s => EF.Functions.Like(
+                                                        s.SubmissionId,
+                                                        submissionId + "%"))
+                                                     .ToListAsync(cancellationToken);
+                if (submissions.Count == 0)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到对应的问卷提交数据，请检查 Submission ID 是否正确。");
+                }
+                if (submissions.Count > 1)
+                {
+                    return CommandResponse.FailureResponse("❌ 找到多个匹配的问卷提交数据，请提供更完整的 Submission ID 以获得准确匹配。");
+                }
+                var submission = submissions[0];
+                var reviewData = await db.ReviewSubmissions.Where(r => r.SubmissionId == submission.SubmissionId)
+                                               .SingleOrDefaultAsync(cancellationToken);
+                if (reviewData is null)
+                {
+                    return CommandResponse.FailureResponse("❌ 无法找到对应的审核数据，可能该问卷非审核问卷。");
+                }
+                var (succ, message) = await GenerateInsight(reviewData, db);
+                if (!succ || string.IsNullOrEmpty(message))
+                {
+                    return CommandResponse.FailureResponse("❌ 生成失败: " + message);
+                }
+                reviewData.AIInsights = message;
+                db.ReviewSubmissions.Update(reviewData);
+                await db.SaveChangesAsync(cancellationToken);
+                return CommandResponse.SuccessResponse("✅ 重新生成见解成功，并已更新数据库。\n" + message);
+            }
+            else
+            {
+                var msg = """
+                    参数不正确。
+                    本命令用于重新生成指定问卷提交的AI分析, 并写入数据库。
+
+                    使用方法:
+                    /survey reinsight [SubmissionId]
+                    SubmissionId 可以简写。
+                    """;
+                return CommandResponse.SuccessResponse(msg);
+            }
+        }
+
+        private async Task<(bool succ, string? message)> GenerateInsight(ReviewSubmissionData reviewSubmission, MainDbContext _db)
+        {
+            try
+            {
+                var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+                if (!llmTool.IsAvailable)
+                {
+                    return (false, "AI 未能生成见解，可能目前不可用。");
+                }
+                _db.Entry(reviewSubmission).Reference(r => r.Submission).Load();
+                var submission = reviewSubmission.Submission;
+                var surveyData = submission.SurveyData;
+                _db.Entry(submission).Reference(s => s.Questionnaire).Load();
+                var questionnaire = submission.Questionnaire;
+                if (questionnaire.LLMPageNames is null)
+                {
+                    return (false, "未配置 LLMPageNames，无法生成见解。");
+                }
+                var surveyJson = questionnaire.SurveyJson;
+                var prompt = llmTool.ParseSurveyResponseToNL(surveyJson, surveyData, questionnaire.LLMPageNames);
+                if (string.IsNullOrWhiteSpace(prompt))
+                {
+                    return (false, "无法解析问卷响应为自然语言。");
+                }
+                var insight = await llmTool.GetInsight(prompt);
+                if (string.IsNullOrWhiteSpace(insight))
+                {
+                    return (false, "AI 未能生成见解，返回结果为空。");
+                }
+                return (true, insight);
+            }
+            catch (Exception ex)
+            {
+                return (false, "生成见解时发生意外错误: " + ex.Message);
+            }
+        }
+    }
+
+    public class DisableSystemCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "disable-system";
+        public override bool IsSuperCommand => true;
+        public override string[] Aliases => ["shutdown", "ds"];
+        public override string Description => "使用方法: /survey disable-system \n 临时关闭问卷系统除本命令外的所有调用。带参调用查看详情。";
+        public override UserGroup[] RequiredPermission => [UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly SurveyCommandRegistry _surveyCommandRegistry;
+        public DisableSystemCommand(IServiceScopeFactory serviceScopeFactory,
+                                    ILoggerFactory loggerFactory, SurveyCommandRegistry surveyCommandRegistry) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _loggerFactory = loggerFactory;
+            _surveyCommandRegistry = surveyCommandRegistry;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 0)
+            {
+                if (!_surveyCommandRegistry.IsSystemDisabled)
+                {
+                    _surveyCommandRegistry.IsSystemDisabled = true;
+                    return CommandResponse.SuccessResponse("已成功关闭所有命令路由。再次执行本命令以恢复。");
+                }
+                else
+                {
+                    _surveyCommandRegistry.IsSystemDisabled = false;
+                    return CommandResponse.SuccessResponse(messageText: "已成功恢复所有命令路由。");
+                }
+            }
+            else
+            {
+                var msg = """
+                    参数不正确。
+                    本命令用于临时关闭问卷系统除本命令外的所有命令路由。
+                    与 appsettings.json 里的配置不互通。其优先级高于本命令。
+
+                    使用方法:
+                    /survey disable-system
+                    """;
                 return CommandResponse.SuccessResponse(msg);
             }
         }

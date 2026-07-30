@@ -1,3 +1,8 @@
+using System.Data;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
@@ -5,79 +10,74 @@ using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
 using Sisters.WudiLib.WebSocket.Reverse;
 using SurveyBackend.Models;
-using System.Data;
-using System.Reflection;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend
 {
     public class OnebotService : BackgroundService, IOnebotService
     {
-        private readonly string _helpText = $"""
-                         Survey Service 帮助
-            本系统提供问卷调查辅助服务。仅可在六同音游部相关群中使用。
-            
-            命令指南:
-            /survey start - [仅审核群] 获取最新入群问卷链接
-            /survey get <问卷标识符> - 获取问卷链接
-            /survey vote <Response Id> [a|d] - 投票问卷
-            /survey info <Response Id> - 查看问卷回应信息
-            /survey insight <Response Id> - 查看问卷 AI 见解
-            /survey qq <QQ号> - 查询指定 QQ 用户提交的入群问卷信息
-            /survey disable - 关闭自己入群问卷的响应公开审阅权限
-            /survey enable - 重新开放自己入群问卷的响应公开审阅权限
-            
-            Reponse Id 可以简写前8位，具体请参照新问卷提交推送时提示的指令。
-            /survey vote <Response Id> 后跟的 a 为同意，d 为拒绝。
+        // private readonly string _helpText = $"""
+        //                  Survey Service 帮助
+        //     本系统提供问卷调查辅助服务。仅可在六同音游部相关群中使用。
 
-            /survey disable 可以关闭自己的入群问卷审阅，他人将无法再次查看你的问卷。
+        //     命令指南:
+        //     /survey start - [仅审核群] 获取最新入群问卷链接
+        //     /survey get <问卷标识符> - 获取问卷链接
+        //     /survey vote <Response Id> [a|d] - 投票问卷
+        //     /survey info <Response Id> - 查看问卷回应信息
+        //     /survey insight <Response Id> - 查看问卷 AI 见解
+        //     /survey qq <QQ号> - 查询指定 QQ 用户提交的入群问卷信息
+        //     /survey disable - 关闭自己入群问卷的响应公开审阅权限
+        //     /survey enable - 重新开放自己入群问卷的响应公开审阅权限
 
-            
-            指令示例:
-              /survey start | 获取入群问卷链接
-              /survey vote a782da a | 同意某个问卷回应
-              /survey vote a782da d | 拒绝某个问卷回应
-              /survey info a782da | 查看某个问卷回应信息
+        //     Reponse Id 可以简写前8位，具体请参照新问卷提交推送时提示的指令。
+        //     /survey vote <Response Id> 后跟的 a 为同意，d 为拒绝。
 
-            =======================================================
-            你可以在 https://github.com/ltyyb/SurveyBackend 获取后端源码
-            Powered by Aunt Studio
-            Using .NET 10.0
-            -
-            Developed by Aunt_nuozhen with ❤
-            后端版本: {Assembly
-                    .GetExecutingAssembly()
-                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                    .InformationalVersion ?? "未知"}
-            """;
-        private readonly string _adminHelpText = """
-                       管理员 | Survey Service 帮助
-            指令集: 
-                /survey setdefault <QID> - 设置默认操作问卷
-                /survey re-insight <RID> - 重新生成指定问卷的 AI 见解，问卷必须 NeedReview == true
-                /survey delete <RID> - 软删除指定问卷响应
-                /survey restore <RID> - 恢复软删除的问卷响应
-                /survey hard-delete <RID> - 直接在数据库中删除指定问卷响应 (慎用)
-                /survey disable <RID> - 将响应标记为 Disabled
-                /survey list-unreviewed - 列出所有未审核问卷的 Response Id 列表
-                /survey stastics <QID> - 使用默认筛选器获取统计信息
-                /survey stastics <QID> <逗号分隔无空格题目筛选> - 使用指定筛选器获取统计信息
-                /survey stastics <QID> [all] - 获取所有题目的统计信息
+        //     /survey disable 可以关闭自己的入群问卷审阅，他人将无法再次查看你的问卷。
 
-                /survey trust <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = true
-                /survey ban <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = false
-                /survey trust - 手动将本群所有用户添加到数据库并标记 IsVerified = true
 
-                /survey disable-service - 暂时禁用问卷服务(软禁止，仅禁止 OneBot 相关，管理员不受限)
-                /survey enable-service - 重新启用问卷服务
-            --
-            RID = ResponseId = SubmissionId
-            QID = QuestionnaireId
-            设置了默认操作问卷后管理员指令可以缺省 <QID>。
-            """;
+        //     指令示例:
+        //       /survey start | 获取入群问卷链接
+        //       /survey vote a782da a | 同意某个问卷回应
+        //       /survey vote a782da d | 拒绝某个问卷回应
+        //       /survey info a782da | 查看某个问卷回应信息
+
+        //     =======================================================
+        //     你可以在 https://github.com/ltyyb/SurveyBackend 获取后端源码
+        //     Powered by Aunt Studio
+        //     Using .NET 10.0
+        //     -
+        //     Developed by Aunt_nuozhen with ❤
+        //     后端版本: {Assembly
+        //             .GetExecutingAssembly()
+        //             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+        //             .InformationalVersion ?? "未知"}
+        //     """;
+        // private readonly string _adminHelpText = """
+        //                管理员 | Survey Service 帮助
+        //     指令集:
+        //         /survey setdefault <QID> - 设置默认操作问卷
+        //         /survey re-insight <RID> - 重新生成指定问卷的 AI 见解，问卷必须 NeedReview == true
+        //         /survey delete <RID> - 软删除指定问卷响应
+        //         /survey restore <RID> - 恢复软删除的问卷响应
+        //         /survey hard-delete <RID> - 直接在数据库中删除指定问卷响应 (慎用)
+        //         /survey disable <RID> - 将响应标记为 Disabled
+        //         /survey list-unreviewed - 列出所有未审核问卷的 Response Id 列表
+        //         /survey stastics <QID> - 使用默认筛选器获取统计信息
+        //         /survey stastics <QID> <逗号分隔无空格题目筛选> - 使用指定筛选器获取统计信息
+        //         /survey stastics <QID> [all] - 获取所有题目的统计信息
+
+        //         /survey trust <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = true
+        //         /survey ban <QQ号> - 将指定QQ号添加到数据库并标记 IsVerified = false
+        //         /survey trust - 手动将本群所有用户添加到数据库并标记 IsVerified = true
+
+        //         /survey disable-service - 暂时禁用问卷服务(软禁止，仅禁止 OneBot 相关，管理员不受限)
+        //         /survey enable-service - 重新启用问卷服务
+        //     --
+        //     RID = ResponseId = SubmissionId
+        //     QID = QuestionnaireId
+        //     设置了默认操作问卷后管理员指令可以缺省 <QID>。
+        //     """;
         private readonly ILogger<OnebotService> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly IConfiguration _configuration;
@@ -238,7 +238,11 @@ namespace SurveyBackend
                 new SysInfoCommand(_scopeFactory),
                 new InfoCommand(_scopeFactory),
                 new CheckCommand(_scopeFactory),
-
+                new ReviewCommand(_scopeFactory, _configuration),
+                new StasticsCommand(_scopeFactory),
+                new InsightCommand(_scopeFactory),
+                new ReinsightCommand(_scopeFactory, _configuration, _loggerFactory),
+                new DisableSystemCommand(_scopeFactory, _loggerFactory, _commandRegistry)
             };
             foreach (var handler in commandHandlers)
             {
@@ -277,6 +281,11 @@ namespace SurveyBackend
                                 && e.UserId != e.SelfId)
                         {
                             LastMessageTime = DateTime.Now;
+                        }
+                        if (_configuration["IsDisabled"] == "true")
+                        {
+                            IsDisabled = true;
+                            return;
                         }
                         var cmdResponse = await _commandRegistry.TryExecuteSurveyCommandAsync(e, stoppingToken);
                         if (cmdResponse is not null)
@@ -1330,7 +1339,7 @@ namespace SurveyBackend
         //                 如果您在1小时以内获取过问卷，则该链接继承上一链接有效期。
 
         //                 请注意看清链接所属用户，请勿填写他人问卷链接。
-        //                 本消息对应用户: 
+        //                 本消息对应用户:
         //                 """);
         //         await SendMessage(e.Endpoint, atMessage + message + atMessage);
         //     }

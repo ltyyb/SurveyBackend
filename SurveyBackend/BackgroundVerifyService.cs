@@ -62,7 +62,7 @@ namespace SurveyBackend
                     return;
                 }
 
-                if (!_onebot.IsAvailable)
+                if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
                     continue;
@@ -86,25 +86,44 @@ namespace SurveyBackend
                 using var scope = _scopeFactory.CreateScope();
                 var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
 
-                List<ReviewSubmissionData> pendingSubmissions 
-                = await _db.ReviewSubmissions.Where(r => r.Status == ReviewStatus.Pending)
-                                             .Include(r => r.Submission)
-                                                .ThenInclude(s => s.User)
-                                             .ToListAsync(cancellationToken);
-                if (pendingSubmissions.Count > 0)
+                var pendingSubmissions = await _db.ReviewSubmissions
+                    .Where(r => r.Status == ReviewStatus.Pending)
+                    .Include(r => r.Submission)
+                        .ThenInclude(s => s.User)
+                    .ToListAsync(cancellationToken);
+
+                if (pendingSubmissions.Count == 0)
                 {
-                    _logger.LogInformation("共检测到 {Count} 条待审核的问卷提交", pendingSubmissions.Count);
+                    return;
                 }
+
+                _logger.LogInformation("共检测到 {Count} 条待审核的问卷提交", pendingSubmissions.Count);
+
+                // 一次性聚合全部待审核提交的票数，避免逐条查询造成 N+1。
+                var pendingReviewIds = pendingSubmissions
+                    .Select(r => r.ReviewSubmissionDataId)
+                    .ToArray();
+                var voteCountRows = await _db.ReviewVotes
+                    .Where(v => pendingReviewIds.Contains(v.ReviewSubmissionDataId!))
+                    .GroupBy(v => v.ReviewSubmissionDataId!)
+                    .Select(votes => new
+                    {
+                        ReviewId = votes.Key,
+                        AgreeCount = votes.Count(v => v.VoteType == VoteType.Upvote),
+                        DenyCount = votes.Count(v => v.VoteType == VoteType.Downvote)
+                    })
+                    .ToListAsync(cancellationToken);
+                var voteCounts = voteCountRows.ToDictionary(
+                    row => row.ReviewId,
+                    row => (row.AgreeCount, row.DenyCount));
+
                 foreach (var reviewData in pendingSubmissions)
                 {
                     var submission = reviewData.Submission;
                     var user = submission.User;
                     _logger.LogInformation("正在审核 SubmissionId: {SubmissionId}, UserId: {UserId}", submission.SubmissionId, user.UserId);
-                    // 从 ReviewVote 表中获取该 submission 的投票情况
-                    var votes = await _db.ReviewVotes.Where(v => v.ReviewSubmissionDataId == reviewData.ReviewSubmissionDataId)
-                                                     .ToListAsync(cancellationToken);
-                    var agreeCount = votes.Count(v => v.VoteType == VoteType.Upvote);
-                    var denyCount = votes.Count(v => v.VoteType == VoteType.Downvote);
+                    voteCounts.TryGetValue(reviewData.ReviewSubmissionDataId, out var counts);
+                    var (agreeCount, denyCount) = counts;
                     if (agreeCount + denyCount < 4)
                     {
                         _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足({0} : {1})，跳过审核。", submission.SubmissionId, agreeCount, denyCount);
@@ -133,7 +152,7 @@ namespace SurveyBackend
                         await _db.SaveChangesAsync(cancellationToken);
                         var atMessage = SendingMessage.At(long.Parse(user.QQId));
                         var message = $"""
-                                    
+
                                     w(ﾟДﾟ)w 您的问卷回答未通过审核欸
                                     (｡•́︿•̀｡) 请检查您的回答，确保符合群规要求。
                                     您的回答将在 24小时 后被清除，
@@ -143,7 +162,7 @@ namespace SurveyBackend
                                     """;
                         await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
                     }
-                }                                               
+                }
             }
             catch (Exception ex)
             {

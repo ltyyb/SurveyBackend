@@ -12,19 +12,19 @@ namespace SurveyBackend
         private readonly IConfiguration _configuration;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly long _mainGroupId;
-        private readonly string? surveyLinkEndpoint;
+        private readonly string? _surveyLinkEndpoint;
         public BackgroundPushingService(ILogger<BackgroundPushingService> logger, IOnebotService onebot, IConfiguration configuration, IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _onebot = onebot;
             _scopeFactory = scopeFactory;
             _configuration = configuration;
-            surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
+            _surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
             // 统一端点格式
-            surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                ? surveyLinkEndpoint
-                                : surveyLinkEndpoint + "/";
-            
+            _surveyLinkEndpoint = string.IsNullOrEmpty(_surveyLinkEndpoint) || _surveyLinkEndpoint.EndsWith('/')
+                                ? _surveyLinkEndpoint
+                                : _surveyLinkEndpoint + "/";
+
 
             if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
             {
@@ -51,24 +51,25 @@ namespace SurveyBackend
                     _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
                     return;
                 }
-                if (string.IsNullOrWhiteSpace(surveyLinkEndpoint))
+                if (string.IsNullOrWhiteSpace(_surveyLinkEndpoint))
                 {
                     _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 配置 \"API:SurveyLinkEndpoint\" 为正确的端点URL。");
                     return;
                 }
-                if (!_onebot.IsAvailable)
+                if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
                     continue;
                 }
-                TimeSpan timeDifference = DateTime.Now - _onebot.LastMessageTime;
+                var now = DateTime.Now;
+                TimeSpan timeDifference = now - _onebot.LastMessageTime;
                 if (timeDifference.TotalHours > 24)
                 {
                     _logger.LogInformation("上次收到消息距离已达1天，将跳过本次推送。");
                     await Task.Delay(TimeSpan.FromHours(6), stoppingToken);
                     continue;
                 }
-                if (DateTime.Now.Hour < 9 || DateTime.Now.Hour >= 23)
+                if (now.Hour < 9 || now.Hour >= 23)
                 {
                     _logger.LogInformation("当前时间不在推送时间段内（9:00-23:00），将跳过本次推送。");
                     // 如果当前时间不在推送时间段内，则等待1小时后再检查
@@ -91,9 +92,9 @@ namespace SurveyBackend
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
                 var unverifiedSubmissions = await db.ReviewSubmissions
+                                                 .AsNoTracking()
                                                  .Where(r => r.Status == ReviewStatus.Pending)
                                                  .Include(r => r.Submission)
-                                                    .ThenInclude(s => s.User)
                                                  .ToListAsync(cancellationToken);
                 if (unverifiedSubmissions.Count > 0)
                 {
@@ -102,7 +103,7 @@ namespace SurveyBackend
                 foreach (var reviewData in unverifiedSubmissions)
                 {
                     // 构造消息内容
-                    var link = $"{surveyLinkEndpoint}?review=true&questionnaireId={reviewData.Submission.QuestionnaireId}&submissionId={reviewData.SubmissionId}";
+                    var link = $"{_surveyLinkEndpoint}?review=true&questionnaireId={reviewData.Submission.QuestionnaireId}&submissionId={reviewData.SubmissionId}";
                     var atAll = SendingMessage.AtAll();
                     var message = new SendingMessage($"""
 

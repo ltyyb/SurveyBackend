@@ -4,8 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Sisters.WudiLib;
 using SurveyBackend.Models;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using static Microsoft.ApplicationInsights.MetricDimensionNames.TelemetryContext;
 using User = SurveyBackend.Models.User;
 
 namespace SurveyBackend.Controllers
@@ -20,8 +18,6 @@ namespace SurveyBackend.Controllers
         private readonly IOnebotService _onebot;
         private readonly ILoggerFactory _loggerFactory;
         private readonly MainDbContext _db;
-        private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9_]+$");
-
         public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IConfiguration configuration, IOnebotService onebotService, MainDbContext db)
         {
             _configuration = configuration;
@@ -42,14 +38,18 @@ namespace SurveyBackend.Controllers
                 return BadRequest(new { status = -1, error = "UserId cannot be null or empty." });
             }
 
-            var user = await _db.Users.FindAsync(userId);
+            var user = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.UserId == userId);
             if (user is null)
             {
                 return StatusCode(403, new { status = -2, error = $"Unable to find user with the provided UserId {userId}." });
             }
 
-            var questionnaire = await _db.Questionnaires.Include(q => q.Survey)
-                                                        .FirstOrDefaultAsync(q => q.QuestionnaireId == questionnaireId);
+            var questionnaire = await _db.Questionnaires
+                .AsNoTracking()
+                .Include(q => q.Survey)
+                .FirstOrDefaultAsync(q => q.QuestionnaireId == questionnaireId);
             if (questionnaire is null)
             {
                 return NotFound(new { status = -4, error = $"No questionnaire found with QuestionnaireId: {questionnaireId}" });
@@ -113,7 +113,11 @@ namespace SurveyBackend.Controllers
 
             if (success && submission is not null)
             {
-                _logger.LogInformation($"Survey submitted for UserId: {surveySubmission.UserId} ({user.QQId}), the submissionId is {submission.SubmissionId}");
+                _logger.LogInformation(
+                    "Survey submitted for UserId: {UserId} ({QQId}), the submissionId is {SubmissionId}",
+                    surveySubmission.UserId,
+                    user.QQId,
+                    submission.SubmissionId);
                 if (submission.Questionnaire.Survey.NeedReview)
                 {
                     // 需要审核，创建审核数据记录
@@ -134,7 +138,10 @@ namespace SurveyBackend.Controllers
             }
             else
             {
-                _logger.LogError($"Failed to save survey for UserId: {surveySubmission.UserId} ({user.QQId})");
+                _logger.LogError(
+                    "Failed to save survey for UserId: {UserId} ({QQId})",
+                    surveySubmission.UserId,
+                    user.QQId);
                 return StatusCode(500, new { status = -501, error = "Failed to save survey response." });
             }
 
@@ -144,14 +151,18 @@ namespace SurveyBackend.Controllers
         [HttpGet("{questionnaireId}/submission/{submissionId}")]
         public async Task<ActionResult> GetSurveyDataAsync(string questionnaireId, string submissionId)
         {
-            var questionnaire = await _db.Questionnaires.FindAsync(questionnaireId);
+            var questionnaire = await _db.Questionnaires
+                .AsNoTracking()
+                .FirstOrDefaultAsync(q => q.QuestionnaireId == questionnaireId);
             if (questionnaire is null)
             {
                 return NotFound(new { error = $"No questionnaire found with QuestionnaireId: {questionnaireId}" });
             }
 
-            var submission = await _db.Submissions.Include(s => s.User)
-                                                  .FirstOrDefaultAsync(s => s.SubmissionId == submissionId);
+            var submission = await _db.Submissions
+                .AsNoTracking()
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.SubmissionId == submissionId);
             if (submission is null)
             {
                 return NotFound(new { error = $"No submission found with SubmissionId: {submissionId}" });
@@ -184,6 +195,7 @@ namespace SurveyBackend.Controllers
                 return BadRequest(new { status = -1, error = "Invalid questionnaire upload data." });
             }
             var request = await _db.Requests.Include(r => r.User)
+                                            .AsNoTracking()
                                             .FirstOrDefaultAsync(r => r.RequestId == questionnaireUploadData.RequestId);
             if (request is null)
             {
@@ -230,7 +242,7 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                var jsonDoc = JsonDocument.Parse(json);
+                using var jsonDoc = JsonDocument.Parse(json);
                 return true;
             }
             catch (JsonException)
@@ -250,7 +262,7 @@ namespace SurveyBackend.Controllers
                                       .FirstOrDefaultAsync(s => s.SurveyId == questionnaire.SurveyId);
                 if (survey is null)
                 {
-                    _logger.LogError($"Survey with SurveyId {questionnaire.SurveyId} not found in database.");
+                    _logger.LogError("Survey with SurveyId {SurveyId} not found in database.", questionnaire.SurveyId);
                     return (false, null);
                 }
                 if (survey.UniquePerUser)
@@ -258,7 +270,11 @@ namespace SurveyBackend.Controllers
                     bool exists = await IsUserUnique(survey, user);
                     if (exists)
                     {
-                        _logger.LogWarning($"User {user.UserId} ({user.QQId}) already has a submission for survey {questionnaire.SurveyId}.");
+                        _logger.LogWarning(
+                            "User {UserId} ({QQId}) already has a submission for survey {SurveyId}.",
+                            user.UserId,
+                            user.QQId,
+                            questionnaire.SurveyId);
                         return (false, null);
                     }
                 }

@@ -1,6 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 using Message = Sisters.WudiLib.SendingMessage;
 using MessageContext = Sisters.WudiLib.Posts.Message;
 
@@ -32,6 +32,10 @@ namespace SurveyBackend.Models
         string CommandName { get; }
         string[] Aliases { get; }
         string Description { get; }
+        /// <summary>
+        /// 控制在 disable-system 状态下是否仍可被路由。
+        /// </summary>
+        bool IsSuperCommand => false;
         CommandResponse? Execute(MessageContext context, string[] args);
     }
 
@@ -41,6 +45,10 @@ namespace SurveyBackend.Models
         public abstract string CommandName { get; }
         public virtual string[] Aliases => Array.Empty<string>();
         public abstract string Description { get; }
+        /// <summary>
+        /// 控制在 disable-system 状态下是否仍可被路由。
+        /// </summary>
+        public virtual bool IsSuperCommand => false;
 
         public abstract CommandResponse? Execute(MessageContext context, string[] args);
     }
@@ -50,6 +58,7 @@ namespace SurveyBackend.Models
     {
         private readonly Dictionary<string, ICommandHandler> _handlers = new(StringComparer.OrdinalIgnoreCase);
         public const string CMD_PREFIX = "/survey";
+        public bool IsSystemDisabled { get; set; } = false;
 
         private readonly IServiceScopeFactory _serviceScopeFactory;
         public SurveyCommandRegistry(IServiceScopeFactory serviceScopeFactory)
@@ -73,7 +82,6 @@ namespace SurveyBackend.Models
 
         public async Task<CommandResponse?> TryExecuteSurveyCommandAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
-            
             try
             {
                 var message = context.Content.Text ?? string.Empty;
@@ -88,46 +96,64 @@ namespace SurveyBackend.Models
                 // 去掉前缀，获取实际命令
                 var commandContent = trimmedMessage[CMD_PREFIX.Length..].Trim();
 
-                using var scope = _serviceScopeFactory.CreateScope();
-                var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-                var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                            .SingleOrDefaultAsync(cancellationToken);
-                var userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
                 // 如果只有前缀没有命令，显示帮助
                 if (string.IsNullOrWhiteSpace(commandContent))
                 {
-                    return CommandResponse.SuccessResponse(new Message(GetHelpMessage(userGroup)));
-
+                    if (IsSystemDisabled)
+                        return CreateSystemDisabledResponse();
+                    else
+                        return CommandResponse.SuccessResponse(new Message(
+                            GetHelpMessage(await GetUserGroupAsync(context.UserId, cancellationToken))));
                 }
 
                 // 拆分命令和参数（支持引号包裹的参数）
                 var parts = ParseCommandParts(commandContent);
-                var cmdName = parts[0].ToLower();
-                var args = parts.Skip(1).ToArray();
+                var cmdName = parts[0];
+                var args = parts[1..];
 
                 if (_handlers.TryGetValue(cmdName, out var handler))
                 {
-                    if (handler is IAsyncCommandHandler asyncHandler)
+                    if (IsSystemDisabled && !handler.IsSuperCommand)
                     {
-                        return await asyncHandler.ExecuteAsync(context, args, cancellationToken);
+                        return CreateSystemDisabledResponse();
                     }
 
-                    return handler.Execute(context, args);
+                    return handler is IAsyncCommandHandler asyncHandler
+                        ? await asyncHandler.ExecuteAsync(context, args, cancellationToken)
+                        : handler.Execute(context, args);
                 }
 
                 // 如果命令不存在，显示帮助
-                return CommandResponse.FailureResponse(new Message(GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
+                var userGroup = await GetUserGroupAsync(context.UserId, cancellationToken);
+                return CommandResponse.FailureResponse(new Message(
+                    GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"发生命令执行异常: {ex}");
-                return CommandResponse.FailureResponse($"执行命令时发生异常{ex.Message}，请稍后再试或联系管理员。");
+                return CommandResponse.FailureResponse($"执行命令时发生异常:\n{ex.GetType().FullName}: {ex.Message}\n\n稍后再试或联系管理员。");
             }
 
 
         }
 
+        private async Task<UserGroup> GetUserGroupAsync(long userId, CancellationToken cancellationToken)
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var userGroup = await db.Users
+                .Where(u => u.QQId == userId.ToString())
+                .Select(u => (UserGroup?)u.UserGroup)
+                .SingleOrDefaultAsync(cancellationToken);
+
+            return userGroup ?? UserGroup.NewComer;
+        }
+
+        private static CommandResponse CreateSystemDisabledResponse()
+        {
+            return CommandResponse.FailureResponse(
+                "当前 Survey 服务已临时关闭，可能正在进行检修或其他事宜。请联系管理员获得帮助。");
+        }
         private string GetHelpMessage(UserGroup userGroup, string? customMessage = null)
         {
             var helpBuilder = new StringBuilder();
@@ -246,16 +272,15 @@ namespace SurveyBackend.Models
     public abstract class AuthorizedCommand(IServiceScopeFactory _dbScopeFactory) : CommandHandlerBase
     {
         public virtual UserGroup[] RequiredPermission => [UserGroup.SuperAdmin, UserGroup.Admin];
+
         public bool HasPermission(MessageContext context)
         {
-            UserGroup userGroup;
             using var scope = _dbScopeFactory.CreateScope();
-            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-            var user = _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                .SingleOrDefault();
-            userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
-            return RequiredPermission.Contains(userGroup);
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var requiredPermissions = RequiredPermission;
+            return db.Users.Any(u =>
+                u.QQId == context.UserId.ToString()
+                && requiredPermissions.Contains(u.UserGroup));
         }
 
 
@@ -279,6 +304,10 @@ namespace SurveyBackend.Models
         string CommandName { get; }
         string[] Aliases { get; }
         string Description { get; }
+        /// <summary>
+        /// 控制在 disable-system 状态下是否仍可被路由。
+        /// </summary>
+        bool IsSuperCommand => false;
         Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default);
     }
     // 异步命令处理器基类
@@ -287,15 +316,17 @@ namespace SurveyBackend.Models
         public abstract string CommandName { get; }
         public virtual string[] Aliases => Array.Empty<string>();
         public abstract string Description { get; }
+        /// <summary>
+        /// 控制在 disable-system 状态下是否仍可被路由。
+        /// </summary>
+        public virtual bool IsSuperCommand => false;
 
         public abstract Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default);
 
         // 同步版本的兼容方法
         public CommandResponse? Execute(MessageContext context, string[] args)
         {
-            var task = ExecuteAsync(context, args);
-            task.Wait();
-            return task.Result;
+            return ExecuteAsync(context, args).GetAwaiter().GetResult();
         }
     }
     // 带权限控制的异步命令基类
@@ -307,16 +338,16 @@ namespace SurveyBackend.Models
             _dbScopeFactory = dbScopeFactory;
         }
         public virtual UserGroup[] RequiredPermission => [UserGroup.SuperAdmin, UserGroup.Admin];
+
         public async Task<bool> HasPermissionAsync(MessageContext context, CancellationToken cancellationToken = default)
         {
-            UserGroup userGroup;
             using var scope = _dbScopeFactory.CreateScope();
-            var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
-            var user = await _db.Users.Where(u => u.QQId == context.UserId.ToString())
-                                .SingleOrDefaultAsync(cancellationToken);
-            userGroup = user is null ? UserGroup.NewComer : user.UserGroup;
-
-            return RequiredPermission.Contains(userGroup);
+            var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
+            var requiredPermissions = RequiredPermission;
+            return await db.Users.AnyAsync(
+                u => u.QQId == context.UserId.ToString()
+                    && requiredPermissions.Contains(u.UserGroup),
+                cancellationToken);
         }
         public override sealed async Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
