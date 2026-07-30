@@ -11,14 +11,10 @@ namespace SurveyBackend.Controllers
     [EnableCors("AllowAll")]
     public class RequestController : ControllerBase
     {
-        private readonly ILogger<RequestController> _logger;
-        private readonly IConfiguration _configuration;
         private readonly MainDbContext _db;
 
-        public RequestController(ILogger<RequestController> logger, IConfiguration configuration, MainDbContext db)
+        public RequestController(MainDbContext db)
         {
-            _logger = logger;
-            _configuration = configuration;
             _db = db;
         }
 
@@ -26,6 +22,7 @@ namespace SurveyBackend.Controllers
         public async Task<ActionResult> GetRequestInfo(string id)
         {
             var request = await _db.Requests
+                                .AsNoTracking()
                                 .FirstOrDefaultAsync(r => r.RequestId == id);
             if (request is null)
             {
@@ -51,6 +48,7 @@ namespace SurveyBackend.Controllers
         public async Task<ActionResult> GetUserOfRequest(string id)
         {
             var request = await _db.Requests
+                                .AsNoTracking()
                                 .Include(r => r.User)
                                 .FirstOrDefaultAsync(r => r.RequestId == id);
             if (request is null)
