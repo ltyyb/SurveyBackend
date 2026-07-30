@@ -204,10 +204,15 @@ namespace SurveyBackend.Models
 
             var totalCount = submissions.Count;
             var disabledCount = submissions.Count(s => s.IsDisabled);
-            var validSubmissions = submissions.Where(s => !s.IsDisabled).ToList();
+            var validCount = totalCount - disabledCount;
 
-            foreach (var submission in validSubmissions)
+            foreach (var submission in submissions)
             {
+                if (submission.IsDisabled)
+                {
+                    continue;
+                }
+
                 JObject? answerObj;
                 try
                 {
@@ -228,7 +233,7 @@ namespace SurveyBackend.Models
             sb.AppendLine("问卷统计结果");
             sb.AppendLine($"目标: {title} ({id})");
             sb.AppendLine($"Questionnaire 数: {questionnaires.Count}");
-            sb.AppendLine($"提交总数: {totalCount}  有效: {validSubmissions.Count}  已禁用: {disabledCount}");
+            sb.AppendLine($"提交总数: {totalCount}  有效: {validCount}  已禁用: {disabledCount}");
             sb.AppendLine(filterSet is null
                 ? "筛选题目: 全部"
                 : $"筛选题目: {string.Join(", ", filterSet)}");

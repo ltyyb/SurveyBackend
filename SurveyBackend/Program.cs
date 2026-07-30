@@ -30,9 +30,9 @@ namespace SurveyBackend
                     opt.CommandTimeout(60);
                     opt.EnableRetryOnFailure(5);
                 });
-                options.EnableDetailedErrors();
                 if (builder.Environment.IsDevelopment())
                 {
+                    options.EnableDetailedErrors();
                     options.EnableSensitiveDataLogging();
                     options.LogTo(Console.WriteLine, LogLevel.Information);
                 }

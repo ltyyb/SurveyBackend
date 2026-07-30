@@ -29,7 +29,6 @@ namespace SurveyBackend
         //        稍后 user 将提供问卷内容，请你根据上述要求进行评分和见解分析。
         //        """;
         private readonly string? sysPrompt;
-        private List<ChatMessage>? _chatHistory = [];
         private readonly IChatClient? chatClient;
         private readonly IConfiguration _configuration;
         private readonly ILogger<LLMTools> _logger;
@@ -82,19 +81,21 @@ namespace SurveyBackend
         public async Task<string?> GetInsight(string surveyContentPrompt)
         {
             if (!IsAvailable) return null;
-            _chatHistory =
+
+            List<ChatMessage> chatHistory =
             [
                 new ChatMessage(ChatRole.System, sysPrompt)
             ];
-            string response = string.Empty;
-            _chatHistory.Add(new ChatMessage(ChatRole.User, surveyContentPrompt));
+            chatHistory.Add(new ChatMessage(ChatRole.User, surveyContentPrompt));
+            var responseBuilder = new StringBuilder();
+
             await foreach (ChatResponseUpdate item in
-                chatClient!.GetStreamingResponseAsync(_chatHistory))
+                chatClient!.GetStreamingResponseAsync(chatHistory))
             {
-                response += item.Text;
+                responseBuilder.Append(item.Text);
             }
-            _chatHistory.Add(new ChatMessage(ChatRole.Assistant, response));
-            return response;
+
+            return responseBuilder.ToString();
         }
 
                 /// <summary>
@@ -127,7 +128,7 @@ namespace SurveyBackend
             }
 
             var elements = CollectElements(surveyJson, pageNames);
-            if (elements is null || elements.Count == 0)
+            if (elements.Count == 0)
             {
                 return null;
             }
