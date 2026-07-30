@@ -1,15 +1,14 @@
-using System.Text;
-
-using Message = Sisters.WudiLib.SendingMessage;
-using MessageContext = Sisters.WudiLib.Posts.Message;
-using SurveyBackend;
-using Sisters.WudiLib.Posts;
-using Microsoft.EntityFrameworkCore;
-using Sisters.WudiLib;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
+using Sisters.WudiLib;
+using Sisters.WudiLib.Posts;
+using SurveyBackend;
+using Message = Sisters.WudiLib.SendingMessage;
+using MessageContext = Sisters.WudiLib.Posts.Message;
 namespace SurveyBackend.Models
 {
     // start指令
@@ -86,7 +85,7 @@ namespace SurveyBackend.Models
 
                         o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
                         请访问链接下方链接:
-                        
+
                         {surveyLink}
 
                         完成问卷~
@@ -97,7 +96,7 @@ namespace SurveyBackend.Models
                         ⚠ 请注意看清链接所属用户，请勿填写他人问卷链接。
                         你知道吗？每份问卷链接都对应唯一用户哦~
                         你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
-                        本消息对应用户: 
+                        本消息对应用户:
                         """;
                     var atMessage = Message.At(context.UserId);
                     return CommandResponse.SuccessResponse(new Message(message) + atMessage);
@@ -118,7 +117,7 @@ namespace SurveyBackend.Models
 
                         o(*￣▽￣*)ブ 你的问卷链接制作完成啦~
                         请访问链接下方链接:
-                        
+
                         {surveyLink}
 
                         完成问卷~
@@ -132,7 +131,7 @@ namespace SurveyBackend.Models
                         ⚠ 请注意看清链接所属用户，请勿填写他人问卷链接。
                         你知道吗？每份问卷链接都对应唯一用户哦~
                         你将稍后在问卷中确认你的QQ号ヾ(•ω•`)o
-                        本消息对应用户: 
+                        本消息对应用户:
                         """;
                     var atMessage = Message.At(context.UserId);
                     return CommandResponse.SuccessResponse(new Message(message) + atMessage);
@@ -1110,7 +1109,7 @@ namespace SurveyBackend.Models
                   PID : {Environment.ProcessId}
                   托管内存: {memoryUsageMB:F2} MB (近似值)
                   运行时长: {(uptime.Days == 0 ? "" : $"{uptime.Days}天")} {uptime.Hours} 小时 {uptime.Minutes} 分钟 {uptime.Seconds} 秒
-                
+
                 问卷状态:
                   Surveys 数量: {totalSurveys}
                   Questionnaires 数量: {totalQuestionnaires}
@@ -1217,7 +1216,7 @@ namespace SurveyBackend.Models
                 使用方法:
                 /survey sysinfo [FULL | DEBUG]
                 加入 FULL 或 DEBUG 标识可以获取更详细的系统状态信息。
-                
+
                 例如:
                 /survey sysinfo
                 /survey sysinfo full
@@ -1518,7 +1517,7 @@ namespace SurveyBackend.Models
                 本命令用于获取某个数据库对象的详细信息。
                 支持对象有: Submission 实例、Questionnaire 实例、Survey 实例、User 实例、ReviewSubmission 实例、Request 实例。
                 同时 id 为纯数字时, 将优先尝试将 ID 解析为 QQ号 并匹配 User 实例。QQ号要求完全匹配。
-                
+
                 使用方法:
                 /survey info [id]
 
@@ -1989,6 +1988,53 @@ namespace SurveyBackend.Models
             catch (Exception ex)
             {
                 return (false, "生成见解时发生意外错误: " + ex.Message);
+            }
+        }
+    }
+
+    public class DisableSystemCommand : AuthorizedAsyncCommand
+    {
+        public override string CommandName => "disbale-system";
+        public override bool IsSuperCommand => true;
+        public override string[] Aliases => ["shutdown", "ds"];
+        public override string Description => "使用方法: /survey disable-system \n 临时关闭问卷系统除本命令外的所有调用。带参调用查看详情。";
+        public override UserGroup[] RequiredPermission => [UserGroup.Admin, UserGroup.SuperAdmin];
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly SurveyCommandRegistry _surveyCommandRegistry;
+        public DisableSystemCommand(IServiceScopeFactory serviceScopeFactory,
+                                    ILoggerFactory loggerFactory, SurveyCommandRegistry surveyCommandRegistry) : base(serviceScopeFactory)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _loggerFactory = loggerFactory;
+            _surveyCommandRegistry = surveyCommandRegistry;
+        }
+        protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
+        {
+            if (args.Length == 0)
+            {
+                if (_surveyCommandRegistry.IsSystemDisabled)
+                {
+                    _surveyCommandRegistry.IsSystemDisabled = false;
+                    return CommandResponse.SuccessResponse("已成功关闭所有命令路由。再次执行本命令以恢复。");
+                }
+                else
+                {
+                    _surveyCommandRegistry.IsSystemDisabled = true;
+                    return CommandResponse.SuccessResponse("已成功恢复所有命令路由。");
+                }
+            }
+            else
+            {
+                var msg = """
+                    参数不正确。
+                    本命令用于临时关闭问卷系统除本命令外的所有命令路由。
+                    与 appsettings.json 里的配置不互通。其优先级高于本命令。
+
+                    使用方法:
+                    /survey disable-system
+                    """;
+                return CommandResponse.SuccessResponse(msg);
             }
         }
     }

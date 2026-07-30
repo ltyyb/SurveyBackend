@@ -62,7 +62,7 @@ namespace SurveyBackend
                     return;
                 }
 
-                if (!_onebot.IsAvailable)
+                if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
                     continue;
@@ -86,7 +86,7 @@ namespace SurveyBackend
                 using var scope = _scopeFactory.CreateScope();
                 var _db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
 
-                List<ReviewSubmissionData> pendingSubmissions 
+                List<ReviewSubmissionData> pendingSubmissions
                 = await _db.ReviewSubmissions.Where(r => r.Status == ReviewStatus.Pending)
                                              .Include(r => r.Submission)
                                                 .ThenInclude(s => s.User)
@@ -133,7 +133,7 @@ namespace SurveyBackend
                         await _db.SaveChangesAsync(cancellationToken);
                         var atMessage = SendingMessage.At(long.Parse(user.QQId));
                         var message = $"""
-                                    
+
                                     w(ﾟДﾟ)w 您的问卷回答未通过审核欸
                                     (｡•́︿•̀｡) 请检查您的回答，确保符合群规要求。
                                     您的回答将在 24小时 后被清除，
@@ -143,7 +143,7 @@ namespace SurveyBackend
                                     """;
                         await _onebot.SendGroupMessageAsync(_verifyGroupId, atMessage + message);
                     }
-                }                                               
+                }
             }
             catch (Exception ex)
             {

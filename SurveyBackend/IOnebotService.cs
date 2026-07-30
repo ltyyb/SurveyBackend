@@ -6,7 +6,7 @@ namespace SurveyBackend
     public interface IOnebotService
     {
         bool IsAvailable { get; }
-        bool IsDisabled { get; }
+        bool IsDisabled { get; set; }
         HttpApiClient? onebotApi { get; }
         DateTime LastMessageTime { get; }
         Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, string message);

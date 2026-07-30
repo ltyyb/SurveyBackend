@@ -24,7 +24,7 @@ namespace SurveyBackend
             surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
                                 ? surveyLinkEndpoint
                                 : surveyLinkEndpoint + "/";
-            
+
 
             if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
             {
@@ -56,7 +56,7 @@ namespace SurveyBackend
                     _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 配置 \"API:SurveyLinkEndpoint\" 为正确的端点URL。");
                     return;
                 }
-                if (!_onebot.IsAvailable)
+                if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
                     continue;
