@@ -14,7 +14,7 @@ jobs:
       final_version: ${{ steps.final.outputs.final_version }}
       base_version: ${{ steps.version.outputs.base_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Read and bump version
         id: version
@@ -63,7 +63,7 @@ jobs:
         os: [linux-x64, win-x64]
         arch: [x64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build self-contained executable
         run: |
@@ -74,7 +74,7 @@ jobs:
             -o ./publish/${{ matrix.os }}-${{ matrix.arch }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SurveyBackend-${{ needs.versioning.outputs.final_version }}-${{ matrix.os }}-${{ matrix.arch }}
           path: ./publish/${{ matrix.os }}-${{ matrix.arch }}
