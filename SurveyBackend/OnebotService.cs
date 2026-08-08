@@ -304,6 +304,19 @@ namespace SurveyBackend
                             }
                         }
                     }
+                    catch (InvalidOperationException opEx)
+                    {
+                        if (opEx.Message.Contains("构造消息段失败"))
+                        {
+                            _logger.LogError(opEx, "处理消息事件时发生 InvalidOperationException。此为上游依赖异常，静默处理。");
+                            return;
+                        }
+                        else
+                        {
+                            _logger.LogError(opEx, "处理消息事件时发生 InvalidOperationException。");
+                            await ReplyMessageWithAtAsync(e, $"处理消息时发生无效操作异常: {opEx.Message}，请稍后再试或联系管理员。");
+                        }
+                    }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "处理消息事件时发生异常。");
