@@ -128,6 +128,11 @@ namespace SurveyBackend.Models
                 return CommandResponse.FailureResponse(new Message(
                     GetHelpMessage(userGroup, $"未知命令: {cmdName}")));
             }
+            catch (InvalidOperationException ex)
+                when (ex.Message.Contains("构造消息段失败", StringComparison.Ordinal))
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"发生命令执行异常: {ex}");
