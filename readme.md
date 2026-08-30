@@ -138,10 +138,12 @@ dotnet ef migrations script -o ./migrations.sql
 
   // AI 见解配置
   "LLM": {
-    "ModelName": "gpt-4.1", // 使用的 OpenAI 模型名称
+    "ModelName": "gpt-5.6-terra", // 使用的 OpenAI 模型名称
     "OpenAIKey": "sk-****************************", // OpenAI API Key
     "OpenAIEndpoint": "https://api.openai.com/v1", // OpenAI API 基础地址
-    "SysPromptPath": "sysPrompt.txt" // 系统提示词文件路径
+    "SysPromptPath": "sysPrompt.txt", // 系统提示词文件路径
+    "ReasoningEffort": "medium", // 推理强度，可选 none、minimal、low、medium、high、xhigh、max
+    "UseWebSearch": true // 是否启用联网搜索, 建议与提示词配合, 设为 true 则强制模型调用联网搜索工具, 为 false 则不允许联网搜索。
   },
   "API": {
     "Endpoint": "https://api.example.com/", // 后端 API 基础地址, 暂时无用，可保留此示例字段

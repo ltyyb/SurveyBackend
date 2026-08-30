@@ -31,7 +31,19 @@ public sealed class LlmOptions
     public string OpenAIKey { get; init; } = string.Empty;
     public string OpenAIEndpoint { get; init; } = string.Empty;
     public string SysPromptPath { get; init; } = string.Empty;
+    public LlmReasoningEffort ReasoningEffort { get; init; } = LlmReasoningEffort.Medium;
     public bool UseWebSearch { get; init; }
+}
+
+public enum LlmReasoningEffort
+{
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max
 }
 
 public sealed class ApplicationOptions
