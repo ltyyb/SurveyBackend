@@ -71,7 +71,13 @@ namespace SurveyBackend
                     responsesClient = new ResponsesClient(
                         new System.ClientModel.ApiKeyCredential(key),
                         new ResponsesClientOptions { Endpoint = new Uri(endpoint) });
-                    sysPrompt = File.ReadAllText(sysPromptPath);
+                    var now = DateTimeOffset.Now;
+                    sysPrompt = $"""
+                                当前时间: {now:yyyy-MM-dd HH:mm:ss zzz}
+                                Timezone: Asia/Shanghai
+                                
+                                """
+                                    + File.ReadAllText(sysPromptPath);
                     IsAvailable = true;
                     _logger.LogInformation(
                         "OpenAI Responses 客户端初始化完成。Model={Model}, ReasoningEffort={ReasoningEffort}, UseWebSearch={UseWebSearch}",
@@ -140,7 +146,7 @@ namespace SurveyBackend
             };
         }
 
-                /// <summary>
+        /// <summary>
         /// 将问卷原始响应数据解析为自然语言格式的字符串。
         /// </summary>
         /// <param name="surveyRawJson">问卷结构的原始JSON字符串。</param>
