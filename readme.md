@@ -103,12 +103,10 @@ dotnet ef migrations script -o ./migrations.sql
 
 ## 配置文件
 
-你需要修改 `appsettings.json` 以配置数据库连接字符串等其它杂项配置。
 
-> [!TIP]
-> 如果您从源代码中开始，请在生成前复制仓库内的 [appsettings.example.json](/SurveyBackend/appsettings.example.json) 并重命名为 `appsettings.json` , 后再进行生成及填写配置。
+请复制仓库 / 发行版 / 构建产物内的 [appsettings.example.json](/SurveyBackend/appsettings.example.json) 并重命名为 `appsettings.json` , 后再进行生成及填写配置。
 
-以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 `appsettings.json` [示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
+以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 [`appsettings.example.json` 示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
 
 ```json
 {
