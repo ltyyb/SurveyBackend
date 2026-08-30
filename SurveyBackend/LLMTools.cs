@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OpenAI;
@@ -30,17 +31,16 @@ namespace SurveyBackend
         //        """;
         private readonly string? sysPrompt;
         private readonly IChatClient? chatClient;
-        private readonly IConfiguration _configuration;
         private readonly ILogger<LLMTools> _logger;
         public bool IsAvailable { get; private set; } = false;
-        public LLMTools(IConfiguration configuration, ILogger<LLMTools> logger)
+        public LLMTools(IOptions<LlmOptions> llmOptions, ILogger<LLMTools> logger)
         {
-            _configuration = configuration;
             _logger = logger;
-            string? model = _configuration["LLM:ModelName"];
-            string? key = _configuration["LLM:OpenAIKey"];
-            string? endpoint = _configuration["LLM:OpenAIEndpoint"];
-            string? sysPromptPath = _configuration["LLM:SysPromptPath"];
+            var options = llmOptions.Value;
+            string? model = options.ModelName;
+            string? key = options.OpenAIKey;
+            string? endpoint = options.OpenAIEndpoint;
+            string? sysPromptPath = options.SysPromptPath;
 
             if (string.IsNullOrWhiteSpace(model))
             {

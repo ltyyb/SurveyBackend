@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
@@ -14,13 +15,15 @@ namespace SurveyBackend.Models
     // start指令
     public class StartCommand : AsyncCommandHandlerBase
     {
-        private readonly IConfiguration _configuration;
+        private readonly BotOptions _botOptions;
+        private readonly ApiOptions _apiOptions;
         private readonly IOnebotService _onebot;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<StartCommand> _logger;
-        public StartCommand(IConfiguration configuration, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<StartCommand> logger)
+        public StartCommand(IOptions<BotOptions> botOptions, IOptions<ApiOptions> apiOptions, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<StartCommand> logger)
         {
-            _configuration = configuration;
+            _botOptions = botOptions.Value;
+            _apiOptions = apiOptions.Value;
             _onebot = onebot;
             _scopeFactory = scopeFactory;
             _logger = logger;
@@ -30,13 +33,8 @@ namespace SurveyBackend.Models
         public override string Description => "获取入群问卷链接，仅在审核群中且未填写过入群问卷的情况下有效。";
         public override async Task<CommandResponse?> ExecuteAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
-            var verifyGroupId = _configuration["Bot:verifyGroupId"];
-            var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-            // 统一端点格式
-            surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                ? surveyLinkEndpoint
-                                : surveyLinkEndpoint + "/";
-            if (context is GroupMessage groupMessage && groupMessage.GroupId.ToString() == verifyGroupId)
+            var surveyLinkEndpoint = _apiOptions.SurveyLinkBase;
+            if (context is GroupMessage groupMessage && groupMessage.GroupId == _botOptions.VerifyGroupId)
             {
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<MainDbContext>();
@@ -223,14 +221,14 @@ namespace SurveyBackend.Models
         public override string Description => "无参时将本群所有成员设置为 VerifiedUser。仅应在初始化数据库时使用且仅允许在 MainGroupId 群内使用。\n" +
         "带参时将指定用户设置为 VerifiedUser。参数为用户QQ号。";
 
-        private readonly IConfiguration _configuration;
+        private readonly BotOptions _botOptions;
         private readonly IOnebotService _onebot;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILogger<TrustCommand> _logger;
-        public TrustCommand(IConfiguration configuration, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<TrustCommand> logger)
+        public TrustCommand(IOptions<BotOptions> botOptions, IOnebotService onebot, IServiceScopeFactory scopeFactory, ILogger<TrustCommand> logger)
             : base(scopeFactory)
         {
-            _configuration = configuration;
+            _botOptions = botOptions.Value;
             _onebot = onebot;
             _scopeFactory = scopeFactory;
             _logger = logger;
@@ -260,7 +258,7 @@ namespace SurveyBackend.Models
                         return CommandResponse.FailureResponse("参数解析失败。请确保输入的参数为有效的QQ号。");
                     }
                 }
-                else if (args.Length == 0 && groupMsg.GroupId.ToString() == _configuration["Bot:mainGroupId"])
+                else if (args.Length == 0 && groupMsg.GroupId == _botOptions.MainGroupId)
                 {
                     try
                     {
@@ -438,11 +436,11 @@ namespace SurveyBackend.Models
         public override string Description => "为指定 Survey 创建一个新的 Questionnaire 版本, 仅私聊可用";
 
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly IConfiguration _configuration;
-        public CreateQuestionnaireCommand(IServiceScopeFactory dbScopeFactory, IConfiguration configuration) : base(dbScopeFactory)
+        private readonly ApiOptions _apiOptions;
+        public CreateQuestionnaireCommand(IServiceScopeFactory dbScopeFactory, IOptions<ApiOptions> apiOptions) : base(dbScopeFactory)
         {
             _serviceScopeFactory = dbScopeFactory;
-            _configuration = configuration;
+            _apiOptions = apiOptions.Value;
         }
 
         protected override async Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
@@ -476,11 +474,7 @@ namespace SurveyBackend.Models
                 };
                 db.Requests.Add(request);
                 await db.SaveChangesAsync(cancellationToken);
-                var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-                // 统一端点格式
-                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                    ? surveyLinkEndpoint
-                                    : surveyLinkEndpoint + "/";
+                var surveyLinkEndpoint = _apiOptions.SurveyLinkBase;
 
                 var link = $"{surveyLinkEndpoint}actions/uploadQuestionnaire?surveyId={surveyId}&requestId={request.RequestId}";
                 return CommandResponse.SuccessResponse($"""
@@ -686,11 +680,11 @@ namespace SurveyBackend.Models
                                               "请注意: 仅已验证的用户可以使用此指令。应使用 /survey start 获取入群问卷链接。";
         public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly IConfiguration _configuration;
-        public GetCommand(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration) : base(serviceScopeFactory)
+        private readonly ApiOptions _apiOptions;
+        public GetCommand(IServiceScopeFactory serviceScopeFactory, IOptions<ApiOptions> apiOptions) : base(serviceScopeFactory)
         {
             _serviceScopeFactory = serviceScopeFactory;
-            _configuration = configuration;
+            _apiOptions = apiOptions.Value;
         }
         protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
@@ -721,11 +715,7 @@ namespace SurveyBackend.Models
                             return CommandResponse.FailureResponse($"❌ 该问卷仅允许一次提交，您已有提交记录了哦~\n已有的提交ID: {existingSubmission.SubmissionId}\n如果需要重新获取链接，请联系管理员。");
                         }
                     }
-                    var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-                    // 统一端点格式
-                    surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                        ? surveyLinkEndpoint
-                                        : surveyLinkEndpoint + "/";
+                    var surveyLinkEndpoint = _apiOptions.SurveyLinkBase;
                     var user = await db.Users.Where(u => u.QQId == context.UserId.ToString())
                                              .SingleOrDefaultAsync(cancellationToken);
                     if (user is null)
@@ -1607,11 +1597,11 @@ namespace SurveyBackend.Models
         public override string Description => "使用方法: /survey review [SubmissionId] \n获取一个需审核问卷的审核链接。SubmissionId 可以简写。";
         public override UserGroup[] RequiredPermission => [UserGroup.VerifiedUser, UserGroup.Admin, UserGroup.SuperAdmin];
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly IConfiguration _configuration;
-        public ReviewCommand(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration) : base(serviceScopeFactory)
+        private readonly ApiOptions _apiOptions;
+        public ReviewCommand(IServiceScopeFactory serviceScopeFactory, IOptions<ApiOptions> apiOptions) : base(serviceScopeFactory)
         {
             _serviceScopeFactory = serviceScopeFactory;
-            _configuration = configuration;
+            _apiOptions = apiOptions.Value;
         }
         protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
         {
@@ -1637,11 +1627,7 @@ namespace SurveyBackend.Models
                     return CommandResponse.FailureResponse("❌ 找到多个匹配的审核问卷提交数据，请提供更完整的 Submission ID 以获得准确匹配。");
                 }
                 var reviewSubmission = reviewSubmissions[0];
-                var surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-                // 统一端点格式
-                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                    ? surveyLinkEndpoint
-                                    : surveyLinkEndpoint + "/";
+                var surveyLinkEndpoint = _apiOptions.SurveyLinkBase;
                 string reviewLink = $"{surveyLinkEndpoint}?review=true&questionnaireId={reviewSubmission.Submission.QuestionnaireId}&submissionId={reviewSubmission.SubmissionId}";
                 string msg = $"""
                         审核链接: {reviewLink}
@@ -1892,12 +1878,12 @@ namespace SurveyBackend.Models
         public override string Description => "使用方法: /survey reinsight [SubmissionId] \n 重新生成指定问卷提交的AI分析。SubmissionId 可以简写。";
         public override UserGroup[] RequiredPermission => [UserGroup.Admin, UserGroup.SuperAdmin];
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly IConfiguration _configuration;
+        private readonly IOptions<LlmOptions> _llmOptions;
         private readonly ILoggerFactory _loggerFactory;
-        public ReinsightCommand(IServiceScopeFactory serviceScopeFactory, IConfiguration configuration, ILoggerFactory loggerFactory) : base(serviceScopeFactory)
+        public ReinsightCommand(IServiceScopeFactory serviceScopeFactory, IOptions<LlmOptions> llmOptions, ILoggerFactory loggerFactory) : base(serviceScopeFactory)
         {
             _serviceScopeFactory = serviceScopeFactory;
-            _configuration = configuration;
+            _llmOptions = llmOptions;
             _loggerFactory = loggerFactory;
         }
         protected async override Task<CommandResponse?> ExecuteAuthorizedAsync(MessageContext context, string[] args, CancellationToken cancellationToken = default)
@@ -1957,7 +1943,7 @@ namespace SurveyBackend.Models
         {
             try
             {
-                var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+                var llmTool = new LLMTools(_llmOptions, _loggerFactory.CreateLogger<LLMTools>());
                 if (!llmTool.IsAvailable)
                 {
                     return (false, "AI 未能生成见解，可能目前不可用。");

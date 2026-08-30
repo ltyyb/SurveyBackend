@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 using Sisters.WudiLib;
 using Sisters.WudiLib.Posts;
@@ -80,7 +81,10 @@ namespace SurveyBackend
         //     """;
         private readonly ILogger<OnebotService> _logger;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly IConfiguration _configuration;
+        private readonly IOptions<BotOptions> _botOptions;
+        private readonly IOptions<ApiOptions> _apiOptions;
+        private readonly IOptions<LlmOptions> _llmOptions;
+        private readonly IOptionsMonitor<ApplicationOptions> _applicationOptions;
         private readonly IServiceScopeFactory _scopeFactory;
 
         private long mainGroupId;
@@ -97,11 +101,21 @@ namespace SurveyBackend
 
         public DateTime LastMessageTime { get; private set; } = DateTime.Now;
 
-        public OnebotService(ILogger<OnebotService> logger, ILoggerFactory loggerFactory, IConfiguration configuration, IServiceScopeFactory scopeFactory)
+        public OnebotService(
+            ILogger<OnebotService> logger,
+            ILoggerFactory loggerFactory,
+            IOptions<BotOptions> botOptions,
+            IOptions<ApiOptions> apiOptions,
+            IOptions<LlmOptions> llmOptions,
+            IOptionsMonitor<ApplicationOptions> applicationOptions,
+            IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
-            _configuration = configuration;
+            _botOptions = botOptions;
+            _apiOptions = apiOptions;
+            _llmOptions = llmOptions;
+            _applicationOptions = applicationOptions;
             _scopeFactory = scopeFactory;
         }
 
@@ -110,73 +124,15 @@ namespace SurveyBackend
             _logger.LogInformation("Onebot 后台服务已启动, 正在初始化配置...");
 
 
-            string accessToken = _configuration["Bot:accessToken"] ?? string.Empty;
-            apiEndpoint = _configuration["API:Endpoint"] ?? string.Empty;
-            surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"] ?? string.Empty;
-            // 统一端点格式
-            surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                ? surveyLinkEndpoint
-                                : surveyLinkEndpoint + "/";
-
-            // 配置文件检查，有异常直接提前返回
-            #region 配置文件检查
-            if (string.IsNullOrWhiteSpace(accessToken))
-            {
-                _logger.LogError("OneBot Access Token 未配置。请前往 appsettings.json 添加 Bot:accessToken 配置项。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_configuration["Bot:wsPort"]))
-            {
-                _logger.LogError("OneBot WebSocket 端口未配置。请前往 appsettings.json 添加 Bot:wsPort 配置项。");
-                return;
-            }
-            if (!int.TryParse(_configuration["Bot:wsPort"], out int wsPort))
-            {
-                _logger.LogError("OneBot WebSocket 端口配置错误, 无法转型。请前往 appsettings.json 检查 Bot:wsPort 配置项。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_configuration["Bot:mainGroupId"]))
-            {
-                _logger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_configuration["Bot:verifyGroupId"]))
-            {
-                _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_configuration["Bot:adminId"]))
-            {
-                _logger.LogError("管理员QQ号未配置。请前往 appsettings.json 配置 \"Bot:adminId\" 为管理员QQ号。");
-                return;
-            }
-            if (!long.TryParse(_configuration["Bot:mainGroupId"], out mainGroupId))
-            {
-                _logger.LogError("主群组群号配置无效，无法转型。请前往 appsettings.json 检查 Bot:mainGroupId 配置项。");
-                return;
-            }
-            if (!long.TryParse(_configuration["Bot:verifyGroupId"], out verifyGroupId))
-            {
-                _logger.LogError("审核群组群号配置无效，无法转型。请前往 appsettings.json 检查 Bot:verifyGroupId 配置项。");
-                return;
-            }
-            if (!long.TryParse(_configuration["Bot:adminId"], out adminId))
-            {
-                _logger.LogError("管理员QQ号配置无效，无法转型。请前往 appsettings.json 检查 Bot:adminId 配置项。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(apiEndpoint))
-            {
-                _logger.LogError("后端 API 端点未配置。请前往 appsettings.json 添加 API:Endpoint 配置项。");
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(surveyLinkEndpoint))
-            {
-                _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 添加 API:SurveyLinkEndpoint 配置项。");
-                return;
-            }
-
-            #endregion
+            var botOptions = _botOptions.Value;
+            var apiOptions = _apiOptions.Value;
+            string accessToken = botOptions.AccessToken;
+            int wsPort = botOptions.WsPort;
+            mainGroupId = botOptions.MainGroupId;
+            verifyGroupId = botOptions.VerifyGroupId;
+            adminId = botOptions.AdminId;
+            apiEndpoint = apiOptions.Endpoint;
+            surveyLinkEndpoint = apiOptions.SurveyLinkBase;
 
             // // 获取 verifyQuestionnaire
             // var verifyQuestionnaires = await _db.Questionnaires
@@ -224,13 +180,13 @@ namespace SurveyBackend
             var _commandRegistry = new SurveyCommandRegistry(_scopeFactory);
             List<ICommandHandler> commandHandlers = new List<ICommandHandler>
             {
-                new StartCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
-                new TrustCommand(_configuration, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>()),
+                new StartCommand(_botOptions, _apiOptions, this, _scopeFactory, _loggerFactory.CreateLogger<StartCommand>()),
+                new TrustCommand(_botOptions, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>()),
                 new CreateSurveyCommand(_scopeFactory),
-                new CreateQuestionnaireCommand(_scopeFactory, _configuration),
+                new CreateQuestionnaireCommand(_scopeFactory, _apiOptions),
                 new VoteCommand(_scopeFactory),
                 new SetUserCommand(_scopeFactory, _loggerFactory.CreateLogger<SetUserCommand>()),
-                new GetCommand(_scopeFactory, _configuration),
+                new GetCommand(_scopeFactory, _apiOptions),
                 new DisableSubmissionCommand(_scopeFactory),
                 new SetVerifyCommand(_scopeFactory),
                 new SetReviewCommand(_scopeFactory),
@@ -238,10 +194,10 @@ namespace SurveyBackend
                 new SysInfoCommand(_scopeFactory),
                 new InfoCommand(_scopeFactory),
                 new CheckCommand(_scopeFactory),
-                new ReviewCommand(_scopeFactory, _configuration),
+                new ReviewCommand(_scopeFactory, _apiOptions),
                 new StasticsCommand(_scopeFactory),
                 new InsightCommand(_scopeFactory),
-                new ReinsightCommand(_scopeFactory, _configuration, _loggerFactory),
+                new ReinsightCommand(_scopeFactory, _llmOptions, _loggerFactory),
                 new DisableSystemCommand(_scopeFactory, _loggerFactory, _commandRegistry)
             };
             foreach (var handler in commandHandlers)
@@ -282,7 +238,7 @@ namespace SurveyBackend
                         {
                             LastMessageTime = DateTime.Now;
                         }
-                        if (_configuration["IsDisabled"] == "true")
+                        if (_applicationOptions.CurrentValue.IsDisabled)
                         {
                             IsDisabled = true;
                             return;
@@ -362,7 +318,7 @@ namespace SurveyBackend
         // {
         //     try
         //     {
-        //         if (_configuration["IsDisabled"] == "true")
+        //         if (_applicationOptions.CurrentValue.IsDisabled)
         //         {
         //             await SendMessageWithAt(e.Endpoint, e.UserId, "问卷服务当前不可用。后端服务可能正在维护。如有疑问请联系管理员。");
         //             return;
@@ -466,8 +422,8 @@ namespace SurveyBackend
         //                     {
         //                         if (e is GroupMessage groupMsg)
         //                         {
-        //                             if (groupMsg.Sender.UserId.ToString() == _configuration["Bot:adminId"]
-        //                                 && groupMsg.GroupId.ToString() == _configuration["Bot:mainGroupId"])
+        //                             if (groupMsg.Sender.UserId == adminId
+        //                                 && groupMsg.GroupId == mainGroupId)
         //                             {
         //                                 await SendMessageWithAt(e.Endpoint, e.UserId, "将强制为本群所有用户注册到数据库并自动配置 IsVerified = true..");
         //                                 await TrustGroup(groupMsg.GroupId, cancellationToken);
@@ -624,7 +580,7 @@ namespace SurveyBackend
         //                     {
         //                         if (e is GroupMessage groupMsg)
         //                         {
-        //                             if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+        //                             if (groupMsg.GroupId != mainGroupId)
         //                             {
         //                                 await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
         //                                 return;
@@ -698,7 +654,7 @@ namespace SurveyBackend
         //                     {
         //                         if (e is GroupMessage groupMsg)
         //                         {
-        //                             if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+        //                             if (groupMsg.GroupId != mainGroupId)
         //                             {
         //                                 await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
         //                                 return;
@@ -831,7 +787,7 @@ namespace SurveyBackend
         //                     {
         //                         if (e is GroupMessage groupMsg)
         //                         {
-        //                             if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+        //                             if (groupMsg.GroupId != mainGroupId)
         //                             {
         //                                 await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
         //                                 return;
@@ -1276,7 +1232,7 @@ namespace SurveyBackend
         //     {
         //         if (e is GroupMessage groupMsg)
         //         {
-        //             if (groupMsg.GroupId.ToString() != _configuration["Bot:verifyGroupId"])
+        //             if (groupMsg.GroupId != verifyGroupId)
         //             {
         //                 await SendMessageWithAt(e.Endpoint, e.UserId, "请在审核群中使用此命令。");
         //                 return false;
@@ -1285,7 +1241,7 @@ namespace SurveyBackend
         //         var qqId = e.UserId;
         //         if (await IsVerifiedAsync(qqId.ToString()))
         //         {
-        //             await SendMessageWithAt(e.Endpoint, e.UserId, $"您已通过审核。您可直接加入群组 {_configuration["Bot:mainGroupId"]}。");
+        //             await SendMessageWithAt(e.Endpoint, e.UserId, $"您已通过审核。您可直接加入群组 {mainGroupId}。");
         //             return false;
         //         }
         //         if (await IsUserSubmitted(qqId.ToString()))
@@ -1380,7 +1336,7 @@ namespace SurveyBackend
         //     {
         //         if (e is GroupMessage groupMsg)
         //         {
-        //             if (groupMsg.GroupId.ToString() != _configuration["Bot:mainGroupId"])
+        //             if (groupMsg.GroupId != mainGroupId)
         //             {
         //                 await SendMessageWithAt(e.Endpoint, e.UserId, "您没有权限在此群聊中使用这一指令。");
         //                 return false;
@@ -1746,7 +1702,6 @@ namespace SurveyBackend
         // {
         //     try
         //     {
-        //         var connStr = _configuration.GetConnectionString("DefaultConnection");
         //         if (string.IsNullOrWhiteSpace(connStr))
         //         {
         //             _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
@@ -1815,7 +1770,7 @@ namespace SurveyBackend
         //             _logger.LogError($"Cannot get survey with version {response.SurveyVersion}");
         //             return false;
         //         }
-        //         var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+        //         var llmTool = new LLMTools(_llmOptions, _loggerFactory.CreateLogger<LLMTools>());
         //         if (!llmTool.IsAvailable)
         //         {
         //             _logger.LogError("AI Insight unavailable");
@@ -1831,7 +1786,6 @@ namespace SurveyBackend
         //         var insight = await llmTool.GetInsight(prompt);
         //         _logger.LogInformation($"Insight generated for responseId: {responseId}");
         //         // 更新数据库
-        //         var connStr = _configuration.GetConnectionString("DefaultConnection");
         //         if (string.IsNullOrWhiteSpace(connStr))
         //         {
         //             _logger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
