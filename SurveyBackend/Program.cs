@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using SurveyBackend.Controllers;
 using SurveyBackend.Models;
@@ -14,6 +15,23 @@ namespace SurveyBackend
             builder.Services.AddControllers();
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             builder.Services.AddOpenApi();
+            builder.Services.AddOptions<BotOptions>()
+                .BindConfiguration(BotOptions.SectionName)
+                .Validate(options => !string.IsNullOrWhiteSpace(options.AccessToken), "Bot:accessToken 未配置。")
+                .Validate(options => options.WsPort is > 0 and <= 65535, "Bot:wsPort 必须是 1 到 65535 之间的端口号。")
+                .Validate(options => options.MainGroupId > 0, "Bot:mainGroupId 必须是有效的正整数群号。")
+                .Validate(options => options.VerifyGroupId > 0, "Bot:verifyGroupId 必须是有效的正整数群号。")
+                .Validate(options => options.AdminId > 0, "Bot:adminId 必须是有效的正整数 QQ 号。")
+                .ValidateOnStart();
+            builder.Services.AddOptions<ApiOptions>()
+                .BindConfiguration(ApiOptions.SectionName)
+                .Validate(options => Uri.TryCreate(options.Endpoint, UriKind.Absolute, out _), "API:Endpoint 必须是有效的绝对 URL。")
+                .Validate(options => Uri.TryCreate(options.SurveyLinkEndpoint, UriKind.Absolute, out _), "API:SurveyLinkEndpoint 必须是有效的绝对 URL。")
+                .ValidateOnStart();
+            builder.Services.AddOptions<LlmOptions>()
+                .BindConfiguration(LlmOptions.SectionName);
+            builder.Services.AddOptions<ApplicationOptions>()
+                .Bind(builder.Configuration);
             var conn = builder.Configuration.GetConnectionString("DefaultConnection");
             if (string.IsNullOrEmpty(conn))
             {
@@ -57,98 +75,6 @@ namespace SurveyBackend
             var app = builder.Build();
 
 
-
-            // 初始化检查和 Load
-            using (var scope = app.Services.CreateScope())
-            {
-                var surveyLogger = scope.ServiceProvider.GetRequiredService<ILogger<SurveyController>>();
-                var mainLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-                if (string.IsNullOrEmpty(app.Configuration.GetConnectionString("DefaultConnection")))
-                {
-                    mainLogger.LogError("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
-                if (string.IsNullOrEmpty(app.Configuration["Bot:mainGroupId"]))
-                {
-                    mainLogger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
-                else
-                {
-                    if (!long.TryParse(app.Configuration["Bot:mainGroupId"], out long mainGroupId))
-                    {
-                        mainLogger.LogError($"主群组群号配置无效，无法将 \"{app.Configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                        Console.WriteLine("\n 按 Enter 退出");
-                        Console.ReadLine();
-                        return;
-                    }
-                }
-                if (string.IsNullOrEmpty(app.Configuration["Bot:adminId"]))
-                {
-                    mainLogger.LogError("管理员QQ号未配置。请前往 appsettings.json 配置 \"Bot:adminId\" 为管理员QQ号。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
-                else
-                {
-                    if (!long.TryParse(app.Configuration["Bot:adminId"], out long adminId))
-                    {
-                        mainLogger.LogError($"管理员QQ号配置无效，无法将 \"{app.Configuration["Bot:adminId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:adminId\" 为正确的管理员QQ号。");
-                        Console.WriteLine("\n 按 Enter 退出");
-                        Console.ReadLine();
-                        return;
-                    }
-                }
-                if (string.IsNullOrEmpty(app.Configuration["Bot:verifyGroupId"]))
-                {
-                    mainLogger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
-                    Console.WriteLine("\n 按 Enter 退出");
-                    Console.ReadLine();
-                    return;
-                }
-                else
-                {
-                    if (!long.TryParse(app.Configuration["Bot:verifyGroupId"], out long verifyGroupId))
-                    {
-                        mainLogger.LogError($"审核群组群号配置无效，无法将 \"{app.Configuration["Bot:verifyGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为正确的群号。");
-                        Console.WriteLine("\n 按 Enter 退出");
-                        Console.ReadLine();
-                        return;
-                    }
-                }
-                if (string.IsNullOrWhiteSpace(app.Configuration["Bot:accessToken"]))
-                {
-                    mainLogger.LogError("OneBot Access Token 未配置。请前往 appsettings.json 添加 Bot:accessToken 配置项。");
-                    return;
-                }
-                if (string.IsNullOrWhiteSpace(app.Configuration["Bot:wsPort"]))
-                {
-                    mainLogger.LogError("OneBot WebSocket 端口未配置。请前往 appsettings.json 添加 Bot:wsPort 配置项。");
-                    return;
-                }
-                if (!int.TryParse(app.Configuration["Bot:wsPort"], out int wsPort))
-                {
-                    mainLogger.LogError("OneBot WebSocket 端口配置错误, 无法转型。请前往 appsettings.json 检查 Bot:wsPort 配置项。");
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(app.Configuration["API:Endpoint"]))
-                {
-                    mainLogger.LogError("后端 API 端点未配置。请前往 appsettings.json 添加 API:Endpoint 配置项。");
-                    return;
-                }
-                if (string.IsNullOrWhiteSpace(app.Configuration["API:SurveyLinkEndpoint"]))
-                {
-                    mainLogger.LogError("问卷链接端点未配置。请前往 appsettings.json 添加 API:SurveyLinkEndpoint 配置项。");
-                    return;
-                }
-            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

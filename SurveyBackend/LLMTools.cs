@@ -1,8 +1,10 @@
-using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using OpenAI;
+using OpenAI.Responses;
 using System.Text;
+
+#pragma warning disable OPENAI001 // Responses API types are marked experimental by the official SDK.
 
 namespace SurveyBackend
 {
@@ -29,18 +31,22 @@ namespace SurveyBackend
         //        稍后 user 将提供问卷内容，请你根据上述要求进行评分和见解分析。
         //        """;
         private readonly string? sysPrompt;
-        private readonly IChatClient? chatClient;
-        private readonly IConfiguration _configuration;
+        private readonly ResponsesClient? responsesClient;
+        private readonly string? model;
+        private readonly LlmReasoningEffort reasoningEffort;
+        private readonly bool useWebSearch;
         private readonly ILogger<LLMTools> _logger;
         public bool IsAvailable { get; private set; } = false;
-        public LLMTools(IConfiguration configuration, ILogger<LLMTools> logger)
+        public LLMTools(IOptions<LlmOptions> llmOptions, ILogger<LLMTools> logger)
         {
-            _configuration = configuration;
             _logger = logger;
-            string? model = _configuration["LLM:ModelName"];
-            string? key = _configuration["LLM:OpenAIKey"];
-            string? endpoint = _configuration["LLM:OpenAIEndpoint"];
-            string? sysPromptPath = _configuration["LLM:SysPromptPath"];
+            var options = llmOptions.Value;
+            model = options.ModelName;
+            string? key = options.OpenAIKey;
+            string? endpoint = options.OpenAIEndpoint;
+            string? sysPromptPath = options.SysPromptPath;
+            reasoningEffort = options.ReasoningEffort;
+            useWebSearch = options.UseWebSearch;
 
             if (string.IsNullOrWhiteSpace(model))
             {
@@ -62,12 +68,22 @@ namespace SurveyBackend
             {
                 try
                 {
-                    // Create the IChatClient
-                    chatClient =
-                        new OpenAIClient(new System.ClientModel.ApiKeyCredential(key),
-                                         new OpenAIClientOptions { Endpoint = new Uri(endpoint) }).GetChatClient(model).AsIChatClient();
-                    sysPrompt = File.ReadAllText(sysPromptPath);
+                    responsesClient = new ResponsesClient(
+                        new System.ClientModel.ApiKeyCredential(key),
+                        new ResponsesClientOptions { Endpoint = new Uri(endpoint) });
+                    var now = DateTimeOffset.Now;
+                    sysPrompt = $"""
+                                当前时间: {now:yyyy-MM-dd HH:mm:ss zzz}
+                                Timezone: Asia/Shanghai
+                                
+                                """
+                                    + File.ReadAllText(sysPromptPath);
                     IsAvailable = true;
+                    _logger.LogInformation(
+                        "OpenAI Responses 客户端初始化完成。Model={Model}, ReasoningEffort={ReasoningEffort}, UseWebSearch={UseWebSearch}",
+                        model,
+                        reasoningEffort,
+                        useWebSearch);
                 }
                 catch (Exception ex)
                 {
@@ -78,27 +94,59 @@ namespace SurveyBackend
 
         }
 
-        public async Task<string?> GetInsight(string surveyContentPrompt)
+        public async Task<string?> GetInsight(string surveyContentPrompt, CancellationToken cancellationToken = default)
         {
             if (!IsAvailable) return null;
 
-            List<ChatMessage> chatHistory =
-            [
-                new ChatMessage(ChatRole.System, sysPrompt)
-            ];
-            chatHistory.Add(new ChatMessage(ChatRole.User, surveyContentPrompt));
-            var responseBuilder = new StringBuilder();
-
-            await foreach (ChatResponseUpdate item in
-                chatClient!.GetStreamingResponseAsync(chatHistory))
+            var responseOptions = new CreateResponseOptions
             {
-                responseBuilder.Append(item.Text);
+                Model = model,
+                Instructions = sysPrompt,
+                StoredOutputEnabled = false,
+                ReasoningOptions = new ResponseReasoningOptions
+                {
+                    ReasoningEffortLevel = ToSdkReasoningEffort(reasoningEffort)
+                }
+            };
+            responseOptions.InputItems.Add(ResponseItem.CreateUserMessageItem(surveyContentPrompt));
+
+            if (useWebSearch)
+            {
+                responseOptions.Tools.Add(ResponseTool.CreateWebSearchTool());
+                responseOptions.ToolChoice = ResponseToolChoice.CreateRequiredChoice();
             }
 
-            return responseBuilder.ToString();
+            ResponseResult response = await responsesClient!.CreateResponseAsync(responseOptions, cancellationToken);
+            if (useWebSearch)
+            {
+                var webSearchCalls = response.OutputItems.OfType<WebSearchCallResponseItem>().ToArray();
+                if (webSearchCalls.Length == 0)
+                {
+                    throw new InvalidOperationException("已要求实时联网搜索，但 Responses API 未返回 Web Search 调用记录。");
+                }
+
+                _logger.LogInformation("OpenAI Responses 已完成 {WebSearchCallCount} 次实时 Web Search 调用。", webSearchCalls.Length);
+            }
+
+            return response.GetOutputText();
         }
 
-                /// <summary>
+        private static ResponseReasoningEffortLevel ToSdkReasoningEffort(LlmReasoningEffort effort)
+        {
+            return effort switch
+            {
+                LlmReasoningEffort.None => "none",
+                LlmReasoningEffort.Minimal => "minimal",
+                LlmReasoningEffort.Low => "low",
+                LlmReasoningEffort.Medium => "medium",
+                LlmReasoningEffort.High => "high",
+                LlmReasoningEffort.XHigh => "xhigh",
+                LlmReasoningEffort.Max => "max",
+                _ => throw new ArgumentOutOfRangeException(nameof(effort), effort, "不支持的模型推理强度。")
+            };
+        }
+
+        /// <summary>
         /// 将问卷原始响应数据解析为自然语言格式的字符串。
         /// </summary>
         /// <param name="surveyRawJson">问卷结构的原始JSON字符串。</param>

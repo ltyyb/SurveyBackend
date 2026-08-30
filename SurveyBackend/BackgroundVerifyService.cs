@@ -1,5 +1,6 @@
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Sisters.WudiLib;
 using SurveyBackend.Models;
 using System.Data;
@@ -10,45 +11,17 @@ namespace SurveyBackend
     {
         private readonly ILogger<BackgroundVerifyService> _logger;
         private readonly IOnebotService _onebot;
-        private readonly IConfiguration _configuration;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly long _mainGroupId;
         private readonly long _verifyGroupId;
         private readonly List<(string responseId, DateTime delTime)> responseClearList = [];
-        public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IConfiguration configuration, IServiceScopeFactory scopeFactory)
+        public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IOptions<BotOptions> botOptions, IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _onebot = onebot;
-            _configuration = configuration;
             _scopeFactory = scopeFactory;
-
-
-            if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
-            {
-                _logger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
-                _mainGroupId = 0; // 设置为0表示未配置
-            }
-            else
-            {
-                if (!long.TryParse(_configuration["Bot:mainGroupId"], out _mainGroupId))
-                {
-                    _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                    _mainGroupId = 0; // 设置为0表示无效
-                }
-            }
-            if (string.IsNullOrEmpty(_configuration["Bot:verifyGroupId"]))
-            {
-                _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
-                _verifyGroupId = 0; // 设置为0表示未配置
-            }
-            else
-            {
-                if (!long.TryParse(_configuration["Bot:verifyGroupId"], out _verifyGroupId))
-                {
-                    _logger.LogError($"审核群组群号配置无效，无法将 \"{_configuration["Bot:verifyGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为正确的群号。");
-                    _verifyGroupId = 0; // 设置为0表示无效
-                }
-            }
+            _mainGroupId = botOptions.Value.MainGroupId;
+            _verifyGroupId = botOptions.Value.VerifyGroupId;
         }
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -56,12 +29,6 @@ namespace SurveyBackend
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                if (_mainGroupId == 0)
-                {
-                    _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                    return;
-                }
-
                 if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);

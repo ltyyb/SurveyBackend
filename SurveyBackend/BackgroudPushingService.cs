@@ -1,5 +1,6 @@
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Sisters.WudiLib;
 using SurveyBackend.Models;
 
@@ -9,36 +10,16 @@ namespace SurveyBackend
     {
         private readonly ILogger<BackgroundPushingService> _logger;
         private readonly IOnebotService _onebot;
-        private readonly IConfiguration _configuration;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly long _mainGroupId;
         private readonly string? _surveyLinkEndpoint;
-        public BackgroundPushingService(ILogger<BackgroundPushingService> logger, IOnebotService onebot, IConfiguration configuration, IServiceScopeFactory scopeFactory)
+        public BackgroundPushingService(ILogger<BackgroundPushingService> logger, IOnebotService onebot, IOptions<BotOptions> botOptions, IOptions<ApiOptions> apiOptions, IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
             _onebot = onebot;
             _scopeFactory = scopeFactory;
-            _configuration = configuration;
-            _surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-            // 统一端点格式
-            _surveyLinkEndpoint = string.IsNullOrEmpty(_surveyLinkEndpoint) || _surveyLinkEndpoint.EndsWith('/')
-                                ? _surveyLinkEndpoint
-                                : _surveyLinkEndpoint + "/";
-
-
-            if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
-            {
-                _logger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
-                _mainGroupId = 0; // 设置为0表示未配置
-            }
-            else
-            {
-                if (!long.TryParse(_configuration["Bot:mainGroupId"], out _mainGroupId))
-                {
-                    _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                    _mainGroupId = 0; // 设置为0表示无效
-                }
-            }
+            _surveyLinkEndpoint = apiOptions.Value.SurveyLinkBase;
+            _mainGroupId = botOptions.Value.MainGroupId;
         }
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -46,16 +27,6 @@ namespace SurveyBackend
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                if (_mainGroupId == 0)
-                {
-                    _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                    return;
-                }
-                if (string.IsNullOrWhiteSpace(_surveyLinkEndpoint))
-                {
-                    _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 配置 \"API:SurveyLinkEndpoint\" 为正确的端点URL。");
-                    return;
-                }
                 if (!_onebot.IsAvailable || _onebot.IsDisabled)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);

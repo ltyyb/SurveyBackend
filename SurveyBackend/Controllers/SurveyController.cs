@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Sisters.WudiLib;
 using SurveyBackend.Models;
 using System.Text.Json;
@@ -13,14 +14,18 @@ namespace SurveyBackend.Controllers
     [EnableCors("AllowAll")]
     public class SurveyController : ControllerBase
     {
-        private readonly IConfiguration _configuration;
+        private readonly BotOptions _botOptions;
+        private readonly ApiOptions _apiOptions;
+        private readonly IOptions<LlmOptions> _llmOptions;
         private readonly ILogger<SurveyController> _logger;
         private readonly IOnebotService _onebot;
         private readonly ILoggerFactory _loggerFactory;
         private readonly MainDbContext _db;
-        public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IConfiguration configuration, IOnebotService onebotService, MainDbContext db)
+        public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IOptions<BotOptions> botOptions, IOptions<ApiOptions> apiOptions, IOptions<LlmOptions> llmOptions, IOnebotService onebotService, MainDbContext db)
         {
-            _configuration = configuration;
+            _botOptions = botOptions.Value;
+            _apiOptions = apiOptions.Value;
+            _llmOptions = llmOptions;
             _logger = logger;
             _onebot = onebotService;
             _loggerFactory = loggerFactory;
@@ -325,7 +330,7 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                var llmTool = new LLMTools(_configuration, _loggerFactory.CreateLogger<LLMTools>());
+                var llmTool = new LLMTools(_llmOptions, _loggerFactory.CreateLogger<LLMTools>());
                 if (!llmTool.IsAvailable)
                 {
                     _logger.LogWarning("LLM Tool is not available, skipping insight generation.");
@@ -366,45 +371,9 @@ namespace SurveyBackend.Controllers
         {
             try
             {
-                long mainGroupId;
-                long verifyGroupId;
-                string? surveyLinkEndpoint = _configuration["API:SurveyLinkEndpoint"];
-
-                if (string.IsNullOrEmpty(_configuration["Bot:verifyGroupId"]))
-                {
-                    _logger.LogError("审核群组群号未配置。请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为审核群组群号。");
-                    return false;
-                }
-                else
-                {
-                    if (!long.TryParse(_configuration["Bot:verifyGroupId"], out verifyGroupId))
-                    {
-                        _logger.LogError($"审核群组群号配置无效，无法将 \"{_configuration["Bot:verifyGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:verifyGroupId\" 为正确的群号。");
-                        return false;
-                    }
-                }
-                if (string.IsNullOrEmpty(_configuration["Bot:mainGroupId"]))
-                {
-                    _logger.LogError("主群组群号未配置。请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为主群组群号。");
-                    return false;
-                }
-                else
-                {
-                    if (!long.TryParse(_configuration["Bot:mainGroupId"], out mainGroupId))
-                    {
-                        _logger.LogError($"主群组群号配置无效，无法将 \"{_configuration["Bot:mainGroupId"]}\" 转换为 long .请前往 appsettings.json 配置 \"Bot:mainGroupId\" 为正确的群号。");
-                        return false;
-                    }
-                }
-                if (string.IsNullOrWhiteSpace(surveyLinkEndpoint))
-                {
-                    _logger.LogError("问卷链接端点未配置。请前往 appsettings.json 配置 \"API:SurveyLinkEndpoint\" 为正确的端点URL。");
-                    return false;
-                }
-                // 统一端点格式
-                surveyLinkEndpoint = string.IsNullOrEmpty(surveyLinkEndpoint) || surveyLinkEndpoint.EndsWith('/')
-                                    ? surveyLinkEndpoint
-                                    : surveyLinkEndpoint + "/";
+                var mainGroupId = _botOptions.MainGroupId;
+                var verifyGroupId = _botOptions.VerifyGroupId;
+                var surveyLinkEndpoint = _apiOptions.SurveyLinkBase;
                 string qqId = reviewSubmission.Submission.User.QQId;
                 string submissionId = reviewSubmission.Submission.SubmissionId;
                 string shortId = reviewSubmission.Submission.ShortSubmissionId;
