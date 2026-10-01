@@ -69,17 +69,43 @@ Dev Build 从 `dev` 分支编译发行，包含最新且可能未经测试的更
 git clone -b <branch> https://github.com/SurveyBackend/SurveyBackend.git
 ```
 
-导航至主项目:
+导航至仓库根目录并构建解决方案:
 
 ```bash
-cd SurveyBackend/SurveyBackend
+cd SurveyBackend
+dotnet build SurveyBackend.slnx
 ```
+
+根目录保留 `SurveyBackend.slnx`、文档、版本文件及仓库级开发配置；后端项目、源码和配置示例位于 `src/SurveyBackend/`。可以使用支持 `.slnx` 格式的 IDE 打开根目录下的解决方案，或使用 VS Code 打开仓库根目录。
+
+项目内部按职责组织，每个顶层类型使用独立文件：
+
+```text
+src/SurveyBackend/
+├── BackgroundServices/          后台推送和审核服务
+├── Bot/                         OneBot 服务及接口
+│   └── Commands/                机器人指令
+│       └── Infrastructure/      指令接口、基类及注册器
+├── Configuration/               强类型配置选项
+├── Controllers/                 HTTP 接口
+├── Data/                        数据库上下文
+│   └── Migrations/              EF Core 迁移及模型快照
+├── Models/                      数据实体及枚举
+├── Services/                    AI 见解和问卷统计
+├── Properties/launchSettings.json
+├── GlobalUsings.cs
+├── Program.cs
+├── SurveyBackend.csproj
+└── appsettings.example.json
+```
+
+源码使用文件级命名空间，以 `SurveyBackend` 为根命名空间并对应项目内的目录。常用导入集中在 `GlobalUsings.cs`，其余导入和类型别名保留在使用它们的文件中。
 
 参考 [数据库配置](#数据库配置) 和 [配置文件](#配置文件) 配置数据库和 `appsettings` .
 
 构建并运行程序:
 ```bash
-dotnet run
+dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 ```
 
 
@@ -87,9 +113,10 @@ dotnet run
 
 本项目使用 MySQL 作为数据库。将由 EF Core 自动管理，但不会自动进行迁移操作。 
 
-请执行以下命令生成迁移 SQL 指令:
+在仓库根目录执行以下命令生成迁移 SQL 指令:
 ```bash
-dotnet ef migrations script -o ./migrations.sql
+dotnet tool restore
+dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o ./migrations.sql
 ```
 再将 `./migrations.sql` 在你的 MySQL 数据库服务端执行。
 
@@ -104,9 +131,9 @@ dotnet ef migrations script -o ./migrations.sql
 ## 配置文件
 
 
-请复制仓库 / 发行版 / 构建产物内的 [appsettings.example.json](/SurveyBackend/appsettings.example.json) 并重命名为 `appsettings.json` , 后再进行生成及填写配置。
+从源码运行时，请将 [src/SurveyBackend/appsettings.example.json](/src/SurveyBackend/appsettings.example.json) 复制为同目录下的 `appsettings.json` 并填写配置。使用发行版 / 构建产物时，请在解压目录中复制配置示例并重命名为 `appsettings.json`。
 
-以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 [`appsettings.example.json` 示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
+以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 [`appsettings.example.json` 示例文件](/src/SurveyBackend/appsettings.example.json)。
 
 ```json
 {
@@ -122,7 +149,7 @@ dotnet ef migrations script -o ./migrations.sql
   // 数据库连接字符串
   "ConnectionStrings": {
     "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;charset=utf8mb4;SslMode=Required"
-  }, // 可以修改SslMode为None以禁用SSL连接
+  }, // 可以修改SslMode为Disabled以禁用SSL连接
 
   // 符合 OneBot v11 标准的 QQ 机器人配置
   // 连接方式为反向ws连接, 即本程序启动ws服务器供 OneBot 协议端连接
@@ -203,7 +230,7 @@ dotnet ef migrations script -o ./migrations.sql
 
 ### 后台服务检查
 
-#### 未推送/未审核提交检查 | `BackgroudPushingService`
+#### 未推送/未审核提交检查 | `BackgroundPushingService`
 
 该后台服务每隔3小时执行一轮如下检查: 
 
@@ -273,14 +300,13 @@ dotnet ef migrations script -o ./migrations.sql
 
 应根据实际需要以及问卷实况进行微调。
 
-> [!TIP]
-> 你知道吗？你可以使用 `Utilities` 项目中的 `LLMTools` 来测试你的系统提示词文件的效果。
-> 
-> 但你需要手动设置 User Secret 以及写入程序的系统提示词等配置并在调试环境下进行测试。
->
-> 详见[`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md)
-> 
-> v4 后没时间改 `Utilities` 项目了，所以可能得等等。。
+### 测试系统提示词
+
+建议在测试环境中配置 `LLM` 节点和系统提示词文件，并为问卷设置需要分析的页面名称 `LLMPageNames`，然后提交测试问卷，检查生成的 AI 见解。
+
+修改系统提示词后，请重启后端。管理员或超级管理员可以通过机器人指令 `/survey reinsight <SubmissionId>` 为已有的审核提交重新生成见解；生成成功后，新见解会覆盖数据库中该提交的原有见解。
+
+已审核用户、管理员或超级管理员可以使用 `/survey insight <SubmissionId>` 查看已保存的见解。这两个指令均支持使用能够唯一匹配提交的 ID 前缀。
 
 ## 许可证
 
