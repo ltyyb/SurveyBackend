@@ -8,7 +8,7 @@
 
 ---
 
-从 `v5` 版本开始本系统从 MySQL 迁移到 SQLite，从 `v4` 版本升级请先备份数据，然后按照 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入)
+从 `v5` 版本开始本系统从 MySQL 迁移到 SQLite，从 `v4` 版本升级请先备份数据，然后按照 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入) 迁移数据库。
 
 > [!TIP]
 > `v4` 及更低版本存档在 [`legacy/v4` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy/v4) 。
