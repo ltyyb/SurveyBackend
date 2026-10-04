@@ -49,9 +49,9 @@ public class CheckCommand : AuthorizedAsyncCommand
                     您的审核问卷提交信息:
 
                     Submission ID: {reviewSubmissionData.Submission.SubmissionId}
-                    作答的 Questionnaire ID: {reviewSubmissionData.Submission.QuestionnaireId} ({reviewSubmissionData.Submission.Questionnaire.ReleaseDate})
+                    作答的 Questionnaire ID: {reviewSubmissionData.Submission.QuestionnaireId} ({reviewSubmissionData.Submission.Questionnaire.ReleaseDate.ToDisplayTime()})
                     关联问卷: {reviewSubmissionData.Submission.Questionnaire.Survey.Title} ({reviewSubmissionData.Submission.Questionnaire.Survey.SurveyId})
-                    提交时间: {reviewSubmissionData.Submission.CreatedAt}
+                    提交时间: {reviewSubmissionData.Submission.CreatedAt.ToDisplayTime()}
                     众审状态: {reviewStatusMsg}
                     赞成票: {votes.Count(v => v.VoteType == VoteType.Upvote)}
                     反对票: {votes.Count(v => v.VoteType == VoteType.Downvote)}

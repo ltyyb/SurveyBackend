@@ -180,7 +180,7 @@ docker run -d --name survey-backend `
 | `8080:8080` | HTTP API，访问地址为 `http://<宿主机地址>:8080` |
 | `21568:21568` | OneBot v11 反向 WebSocket，容器端口对应 `Bot:wsPort` |
 
-冒号左侧是宿主机端口，右侧是容器端口。宿主机 8080 被占用时，可改为 `-p 18080:8080`；修改 `Bot:wsPort` 时必须同步修改 WebSocket 映射的右侧端口。`TZ=Asia/Shanghai` 用于本地时间和推送时段，数据库时间仍按 UTC 处理。
+冒号左侧是宿主机端口，右侧是容器端口。宿主机 8080 被占用时，可改为 `-p 18080:8080`；修改 `Bot:wsPort` 时必须同步修改 WebSocket 映射的右侧端口。`TZ=Asia/Shanghai` 用于本地时间和推送时段；`/survey info`、`/survey check`、`/survey review`（含别名 `rv`）中的数据库时间也按 `TZ` 指定的时区显示，未设置时使用系统时区。数据库存储和审核时长计算仍使用 UTC。
 
 镜像中的 `EXPOSE 8081` 不会自动配置 HTTPS；上述示例仅启用 HTTP 8080。生产部署可由反向代理提供 HTTPS，并将 API 转发至 8080；代理和后端同机时，可将映射改为 `-p 127.0.0.1:8080:8080`。直接在容器内启用 HTTPS 则需另外配置证书和 Kestrel，不能只添加端口映射。HTTP 端口设置参见 [Microsoft 容器端口说明](https://learn.microsoft.com/en-us/dotnet/core/compatibility/containers/8.0/aspnet-port)。
 
