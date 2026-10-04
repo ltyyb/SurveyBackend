@@ -9,6 +9,9 @@ RUN dotnet publish "SurveyBackend.csproj" -c Release --no-restore -o /app/publis
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+RUN mkdir -p /data && chown "$APP_UID" /data
+ENV Database__Path=/data/data.db
+VOLUME ["/data"]
 USER $APP_UID
 EXPOSE 8080
 EXPOSE 8081
