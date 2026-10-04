@@ -45,7 +45,7 @@ public class BackgroundVerifyService : BackgroundService
 
 
 
-    private async Task VerifyResponse(CancellationToken cancellationToken)
+    internal async Task VerifyResponse(CancellationToken cancellationToken)
     {
         try
         {

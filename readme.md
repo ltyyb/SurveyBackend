@@ -101,6 +101,22 @@ src/SurveyBackend/
 
 源码使用文件级命名空间，以 `SurveyBackend` 为根命名空间并对应项目内的目录。常用导入集中在 `GlobalUsings.cs`，其余导入和类型别名保留在使用它们的文件中。
 
+`tests/SurveyBackend.Tests/` 包含审核判定和配置启动校验的 xUnit 测试，可在根目录运行：
+
+```bash
+dotnet test SurveyBackend.slnx -c Release
+```
+
+测试按以下职责组织，每个用例独立创建数据和配置，不需要真实 MySQL、OneBot 或本地凭据：
+
+| 测试类 | 覆盖内容 |
+| --- | --- |
+| `BackgroundVerifyServiceTests` | 24 小时和同意率边界、UTC 时间、多条问卷票数隔离、新票和改票后的再次判定、状态与用户组保存、通知内容和去重、数据库保存与通知异常 |
+| `ReviewOptionsValidatorTests` | 票数和同意率合法范围、NaN / 无穷值、多个非法字段同时报告 |
+| `ReviewOptionsTests` | 缺省配置、真实配置示例和 JSON 绑定、非法值阻止启动、不同区域设置下的小数解析 |
+
+审核服务测试使用 EF Core InMemory、可推进的固定时钟和记录通知及异常的替身。保存失败时验证状态与用户组均未写入、不发送通知，下一轮可重新判定；通知失败时验证结果已保存且异常被记录，后续检查不会重复通知。实际 MySQL 查询、事务行为和 QQ 消息送达需在测试环境另行验证。
+
 参考 [数据库配置](#数据库配置) 和 [配置文件](#配置文件) 配置数据库和 `appsettings` .
 
 构建并运行程序:
