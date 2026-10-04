@@ -1,3 +1,4 @@
+using System.Reflection;
 using SurveyBackend.BackgroundServices;
 
 namespace SurveyBackend;
@@ -6,6 +7,10 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        Console.WriteLine($"正在启动版本: {Assembly
+                                            .GetExecutingAssembly()
+                                            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                                            .InformationalVersion ?? "未知"}");
         if (DatabaseCommands.TryRun(args, out var exitCode))
         {
             Environment.ExitCode = exitCode;
