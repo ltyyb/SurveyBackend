@@ -6,6 +6,12 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        if (DatabaseCommands.TryRun(args, out var exitCode))
+        {
+            Environment.ExitCode = exitCode;
+            return;
+        }
+
         var builder = WebApplication.CreateBuilder(args);
         // Add services to the container.
 
@@ -33,22 +39,18 @@ public class Program
             .BindConfiguration(LlmOptions.SectionName);
         builder.Services.AddOptions<ApplicationOptions>()
             .Bind(builder.Configuration);
-        var conn = builder.Configuration.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrEmpty(conn))
+        if (builder.Configuration.GetConnectionString("DefaultConnection") is not null)
         {
-            Console.WriteLine("连接字符串未配置。请前往 appsettings.json 添加 \"DefaultConnection\" 连接字符串。");
-            Console.WriteLine("\n 按 Enter 退出");
-            Console.ReadLine();
-            return;
+            throw new InvalidOperationException("已移除 MySQL 支持。请删除 ConnectionStrings:DefaultConnection 并配置 Database:Path。");
         }
+
+        var databaseOptions = builder.Configuration.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new();
+        var databasePath = databaseOptions.GetFullPath(AppContext.BaseDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
 
         builder.Services.AddDbContextPool<MainDbContext>(options =>
         {
-            options.UseMySQL(conn, opt =>
-            {
-                opt.CommandTimeout(60);
-                opt.EnableRetryOnFailure(5);
-            });
+            options.UseSqlite(SqliteDatabase.ConnectionString(databasePath), opt => opt.CommandTimeout(60));
             if (builder.Environment.IsDevelopment())
             {
                 options.EnableDetailedErrors();
@@ -75,9 +77,11 @@ public class Program
 
 
         var app = builder.Build();
-
-
-
+        using (var scope = app.Services.CreateScope())
+        {
+            SqliteDatabase.Initialize(scope.ServiceProvider.GetRequiredService<MainDbContext>());
+        }
+        app.Logger.LogInformation("SQLite 数据库: {DatabasePath}", databasePath);
         // Configure the HTTP request pipeline.
         if (app.Environment.IsDevelopment())
         {
