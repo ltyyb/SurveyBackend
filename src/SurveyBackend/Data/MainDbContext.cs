@@ -17,6 +17,7 @@ public class MainDbContext : DbContext
     public DbSet<ReviewSubmissionData> ReviewSubmissions => Set<ReviewSubmissionData>();
     public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
     public DbSet<Request> Requests => Set<Request>();
+    public DbSet<ForceEditGrant> ForceEditGrants => Set<ForceEditGrant>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // 配置 用户表 实体
@@ -185,6 +186,24 @@ public class MainDbContext : DbContext
                   .IsRequired();
             entity.Property(x => x.CreatedAt)
                   .IsRequired();
+        });
+
+        modelBuilder.Entity<ForceEditGrant>(entity =>
+        {
+            entity.ToTable("force_edit_grants");
+            entity.HasKey(x => x.RequestId);
+            entity.Property(x => x.RequestId).HasMaxLength(16);
+            entity.Property(x => x.TargetUserId).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.QuestionnaireId).HasMaxLength(8).IsRequired();
+            entity.Property(x => x.SubmissionId).HasMaxLength(16);
+            entity.HasOne(x => x.Request).WithOne().HasForeignKey<ForceEditGrant>(x => x.RequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.TargetUser).WithMany().HasForeignKey(x => x.TargetUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Questionnaire).WithMany().HasForeignKey(x => x.QuestionnaireId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Submission).WithMany().HasForeignKey(x => x.SubmissionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         var utcConverter = new ValueConverter<DateTime, DateTime>(

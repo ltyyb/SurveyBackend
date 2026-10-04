@@ -479,6 +479,39 @@ SQLite 启用外键、WAL 和 60 秒锁等待，适合单实例部署。数据�
 
 你可以在会话中使用 `/survey` 指令来测试机器人是否连接正常以及查看可用的子指令列表。
 
+### 管理员编辑或代填问卷
+
+管理员和超级管理员可在私聊中使用：
+
+```text
+/survey force-edit <SubmissionId / ReviewSubmissionDataId / UserId / QQ号> [SurveyId]
+```
+
+请提供完整 ID。使用 SubmissionId 或 ReviewSubmissionDataId 时，编辑对应提交；使用 UserId 或 QQ 号时，编辑该用户最新的入群问卷提交（包括已停用的提交）。若没有入群提交，则生成代填链接；尚未注册的 QQ 号会自动注册。存在多份入群问卷时，命令会列出 SurveyId，按提示追加选择。代填采用所选 Survey 最新发布的 Questionnaire；编辑已有提交始终使用原版本。尚未发布题面的问卷不能代填。
+
+链接格式为 `SurveyLinkEndpoint/actions/forceEdit?requestId=...`，两小时内有效，保存成功后失效。链接具有编辑权限，请勿转发。签发管理员被降级、请求被停用或目标被删除后，链接也会失效。静态前端位于 [`frontend/Survey/actions/forceEdit/`](frontend/Survey/actions/forceEdit/README.md)，复制整个目录并配置 `config.js` 即可部署，无需重新构建原 Vue 前端。接口响应保持现有的 `status` / `error` 风格：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/Survey/force-edit/{requestId}` | 校验授权并取得题面和已有答案 |
+| POST | `/api/Survey/force-edit/{requestId}/submission` | 保存编辑结果或代填提交 |
+
+GET 成功返回 `status: 0`、`requestId`、`mode`（`edit` / `create`）、目标 `userId` / `qqId`、`questionnaireId`、`submissionId`、`surveyJson`、`surveyData` 和 UTC `expiresAt`。`surveyJson` 已按目标用户替换 QQ 号和问卷发布日期占位符；创建模式下 `submissionId` / `surveyData` 为 `null`。
+
+POST 请求体仅需要答案，`answers` 是序列化后的 JSON 对象字符串：
+
+```json
+{
+  "answers": "{\"question1\":\"answer\"}"
+}
+```
+
+提交者、问卷版本及编辑目标由后端授权记录绑定，前端不能指定其他目标。成功返回 `status: 0` 和 `submissionId`；非法答案返回 400，授权无效、过期或已保存返回 403，目标消失返回 404。代填链接签发后用户已提交入群问卷，或所选 Survey 已取消入群问卷标记时，保存返回 409，请重新获取链接。失败不会消耗请求；重复或并发保存同一链接最多成功一次。
+
+编辑会保留提交者、原提交时间、停用状态、审核状态、投票和用户身份组；旧 AI 见解会标记为需要重新生成，可使用 `/survey reinsight <SubmissionId>` 更新。代填会创建待审核记录，将 `NewComer` 改为 `PendingUser`，保留其他身份组，并沿用新提交的 AI 见解和群通知流程。通知失败会记录错误，已保存的数据仍保留。
+
+此次新增 `force_edit_grants` 表。已有 SQLite 数据库需停止服务、备份并审阅 `AddForceEditGrants` 迁移 SQL，再运行 `--migrate-database <数据库路径>`；空库会自动初始化。旧 MySQL Dump 导入格式保持不变。
+
 ## 审核流程参照
 
 现有已配置的主群 M 和审核群 V，以及机器人 B，管理员 A。

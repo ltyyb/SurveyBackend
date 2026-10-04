@@ -176,6 +176,7 @@ public class OnebotService : BackgroundService, IOnebotService
             new TrustCommand(_botOptions, this, _scopeFactory, _loggerFactory.CreateLogger<TrustCommand>()),
             new CreateSurveyCommand(_scopeFactory),
             new CreateQuestionnaireCommand(_scopeFactory, _apiOptions),
+            new ForceEditCommand(_scopeFactory, _apiOptions),
             new VoteCommand(_scopeFactory),
             new SetUserCommand(_scopeFactory, _loggerFactory.CreateLogger<SetUserCommand>()),
             new GetCommand(_scopeFactory, _apiOptions),
