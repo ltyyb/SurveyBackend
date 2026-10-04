@@ -9,14 +9,18 @@ public class BackgroundVerifyService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly long _mainGroupId;
     private readonly long _verifyGroupId;
+    private readonly ReviewOptions _reviewOptions;
+    private readonly TimeProvider _timeProvider;
     private readonly List<(string responseId, DateTime delTime)> responseClearList = [];
-    public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IOptions<BotOptions> botOptions, IServiceScopeFactory scopeFactory)
+    public BackgroundVerifyService(ILogger<BackgroundVerifyService> logger, IOnebotService onebot, IOptions<BotOptions> botOptions, IOptions<ReviewOptions> reviewOptions, IServiceScopeFactory scopeFactory, TimeProvider timeProvider)
     {
         _logger = logger;
         _onebot = onebot;
         _scopeFactory = scopeFactory;
         _mainGroupId = botOptions.Value.MainGroupId;
         _verifyGroupId = botOptions.Value.VerifyGroupId;
+        _reviewOptions = reviewOptions.Value;
+        _timeProvider = timeProvider;
     }
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -79,6 +83,7 @@ public class BackgroundVerifyService : BackgroundService
                 row => row.ReviewId,
                 row => (row.AgreeCount, row.DenyCount));
 
+            var pendingCutoff = _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromHours(24);
             foreach (var reviewData in pendingSubmissions)
             {
                 var submission = reviewData.Submission;
@@ -86,15 +91,20 @@ public class BackgroundVerifyService : BackgroundService
                 _logger.LogInformation("正在审核 SubmissionId: {SubmissionId}, UserId: {UserId}", submission.SubmissionId, user.UserId);
                 voteCounts.TryGetValue(reviewData.ReviewSubmissionDataId, out var counts);
                 var (agreeCount, denyCount) = counts;
-                if (agreeCount + denyCount < 4)
+                var totalVotes = (long)agreeCount + denyCount;
+                // 超时通过优先于常规判定，使用整数比较确保恰好 2/3 时通过。
+                var timeoutApproval = submission.CreatedAt < pendingCutoff
+                    && totalVotes >= 3
+                    && agreeCount * 3L >= totalVotes * 2;
+                if (!timeoutApproval && totalVotes < _reviewOptions.MinimumVotes)
                 {
-                    _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足({0} : {1})，跳过审核。", submission.SubmissionId, agreeCount, denyCount);
+                    _logger.LogInformation("SubmissionId: {SubmissionId} 的投票数不足({AgreeCount} : {DenyCount})，跳过审核。", submission.SubmissionId, agreeCount, denyCount);
                     continue;
                 }
-                float agreeRate = (float)agreeCount / (agreeCount + denyCount);
-                if (agreeRate > 0.6)
+                var agreeRate = totalVotes == 0 ? 0 : (double)agreeCount / totalVotes;
+                if (timeoutApproval || agreeRate > _reviewOptions.AgreeRateThreshold)
                 {
-                    _logger.LogInformation("SubmissionId: {SubmissionId} 审核通过。", submission.SubmissionId);
+                    _logger.LogInformation("SubmissionId: {SubmissionId} 审核通过，超时通过: {TimeoutApproval}。", submission.SubmissionId, timeoutApproval);
                     reviewData.Status = ReviewStatus.Approved;
                     user.UserGroup = UserGroup.VerifiedUser;
                     await _db.SaveChangesAsync(cancellationToken);

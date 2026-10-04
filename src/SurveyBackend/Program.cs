@@ -25,6 +25,10 @@ public class Program
             .Validate(options => Uri.TryCreate(options.Endpoint, UriKind.Absolute, out _), "API:Endpoint 必须是有效的绝对 URL。")
             .Validate(options => Uri.TryCreate(options.SurveyLinkEndpoint, UriKind.Absolute, out _), "API:SurveyLinkEndpoint 必须是有效的绝对 URL。")
             .ValidateOnStart();
+        builder.Services.AddSingleton<IValidateOptions<ReviewOptions>, ReviewOptionsValidator>();
+        builder.Services.AddOptions<ReviewOptions>()
+            .BindConfiguration(ReviewOptions.SectionName)
+            .ValidateOnStart();
         builder.Services.AddOptions<LlmOptions>()
             .BindConfiguration(LlmOptions.SectionName);
         builder.Services.AddOptions<ApplicationOptions>()
@@ -66,6 +70,7 @@ public class Program
         builder.Services.AddSingleton<IHostedService>(sp =>
             (OnebotService)sp.GetRequiredService<IOnebotService>());
         builder.Services.AddSingleton<IHostedService, BackgroundPushingService>();
+        builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IHostedService, BackgroundVerifyService>();
 
 

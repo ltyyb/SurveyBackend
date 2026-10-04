@@ -161,6 +161,12 @@ dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o 
     "adminId": "56******0" // 管理员ID，将自动在users表中设置身份组为 SuperAdmin
   },
 
+  // 常规审核阈值；超时通过规则固定为超过 24 小时、至少 3 票、同意率不少于 2/3
+  "Review": {
+    "MinimumVotes": 4, // 触发常规审核判定的最少总票数，必须为正整数
+    "AgreeRateThreshold": 0.6 // 同意率必须严格大于此值才通过，取值为 0 到 1
+  },
+
   // AI 见解配置
   "LLM": {
     "ModelName": "gpt-5.6-terra", // 使用的 OpenAI 模型名称
@@ -186,6 +192,8 @@ dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o 
 > 与此同时，对配置文件合法性的强制检查仅在程序运行之初。如果配置文件修改出现错误可能导致某个组件无法恢复正常工作或引发不可预期的异常。
 > 
 > 因此请在修改配置文件后重启程序。
+
+`Review` 配置在启动时绑定并校验：`MinimumVotes` 必须为正整数，`AgreeRateThreshold` 必须为 0 到 1 之间的有限数值（包含端点）。非法值或无法转换为对应类型的值会阻止程序启动；阈值为 `1` 时，常规审核不会通过，但超时通过规则仍有效。省略整个配置节或单个字段时，分别使用默认值 `4` 和 `0.6`，现有配置无需补充字段即可启动。调整后须重启程序；本次变更不需要数据库迁移。
 
 ## 指令指南
 
@@ -251,8 +259,8 @@ dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o 
 
   1. 检查 `ReviewSubmissions` DbSet，查找 `r.Status == ReviewStatus.Pending` 的提交，计算其在 `ReviewVotes` 表中的投票结果。
   2. 对于每一条未审核的提交，计算其同意票与拒绝票的数量。
-  3. 如果总投票数 ≥ 5 张，尝试计算同意率。
-  4. 如果同意率达到 60% 以上，则判定审核通过，否则不通过。
+  3. 优先检查超时通过条件：提交时间 `Submission.CreatedAt`（UTC）距本轮检查时间**超过 24 小时**，且总投票数 ≥ 3、同意率 ≥ 2/3 时，直接通过。总票数仅统计同意票与拒绝票，恰好 2 票同意、1 票拒绝也满足同意率条件。
+  4. 未满足超时通过条件时，按 `Review` 配置进行常规判定：总票数 ≥ `MinimumVotes`（默认 4），且同意率**严格大于** `AgreeRateThreshold`（默认 0.6）则通过；达到票数但同意率未超过阈值则拒绝，票数不足则保持待审核。超时条件本身不会触发拒绝。时长按原提交时间计算，管理员重新设置为 `Pending` 不会重置该时间。判定在下一轮检查时执行，OneBot 不可用或服务暂停时延后。
   5. 如果审核通过，执行如下操作: 
       - 将 `r.Status` 设置为 `ReviewStatus.Approved`
       - 将该用户的 `UserGroup` 设置为 `UserGroup.VerifiedUser`。
