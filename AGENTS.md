@@ -14,7 +14,7 @@ Run from the repository root with the .NET 10 SDK:
 - `dotnet run --project src/SurveyBackend/SurveyBackend.csproj --launch-profile https` — start locally at `https://localhost:7224` (HTTP: `5136`).
 - `dotnet publish src/SurveyBackend/SurveyBackend.csproj -c Release -r linux-x64 --self-contained false -o publish/linux-x64` — produce a runtime-dependent build, matching CI; use `win-x64` for Windows.
 
-Configure MySQL and OneBot before running. Development exposes `/openapi/v1.json`.
+Configure OneBot before running. SQLite defaults to `data.db` beside the application; use `Database:Path` or `Database__Path` to override it. Development exposes `/openapi/v1.json`.
 
 ## Coding Style & Naming Conventions
 
@@ -22,7 +22,7 @@ Use four-space indentation and one top-level type per file. Match filenames to t
 
 ## Testing Guidelines
 
-`tests/SurveyBackend.Tests/` uses xUnit for review boundaries, UTC timing, independent vote aggregation, status and user-group persistence, notification contents, retries, and configuration validation/binding. Each service test uses its own EF Core InMemory database, controllable clock, and recording OneBot/logger; assert recorded errors so caught exceptions cannot silently pass a test. The configuration tests load only synthetic values or `appsettings.example.json`, never local credentials. Real MySQL queries, transactions, and QQ delivery require separate verification. No coverage threshold is configured; CI currently publishes builds only. Build and run `dotnet test SurveyBackend.slnx` before submitting, then validate affected API routes, `/survey` commands, permissions, and review transitions with disposable data and test groups. Record steps and results. Use descriptive test names such as `Method_Condition_ExpectedResult`.
+`tests/SurveyBackend.Tests/` uses xUnit for review boundaries, UTC timing, independent vote aggregation, status and user-group persistence, notification contents, retries, and configuration validation/binding. Each service test uses its own SQLite in-memory database, controllable clock, and recording OneBot/logger; assert recorded errors so caught exceptions cannot silently pass a test. The configuration tests load only synthetic values or `appsettings.example.json`, never local credentials. Migration tests use on-disk SQLite to verify imports, relational queries, transactions, API reads, and command permissions. Actual QQ delivery requires separate verification. No coverage threshold is configured; CI currently publishes builds only. Build and run `dotnet test SurveyBackend.slnx` before submitting, then validate affected API routes, `/survey` commands, permissions, and review transitions with disposable data and test groups. Record steps and results. Use descriptive test names such as `Method_Condition_ExpectedResult`.
 
 ## Commit & Pull Request Guidelines
 
@@ -32,4 +32,4 @@ History uses `feat:`, `fix:`, `refactor:`, `build:`, and `version:` prefixes, of
 
 ## Security & Configuration Tips
 
-Copy `src/SurveyBackend/appsettings.example.json` to the same directory as `appsettings.json`; keep credentials out of Git. Supply the configured prompt file for AI insights. Restart after configuration changes. Database migrations are not automatic: review generated SQL and back up data before applying schema changes.
+Copy `src/SurveyBackend/appsettings.example.json` to the same directory as `appsettings.json`; keep credentials out of Git. Supply the configured prompt file for AI insights. Restart after configuration changes. Empty databases are initialized on first start. Existing databases with pending migrations refuse startup: stop the service, review generated SQL, back up data, then run `--migrate-database <path>`. Offline imports use `--import-mysql-dump <dump.sql> <new.db>` and never overwrite an existing target. Never commit SQLite databases, sidecar files, or local dumps.
