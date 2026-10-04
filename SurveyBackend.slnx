@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/SurveyBackend/SurveyBackend.csproj" />
+  <Project Path="tests/SurveyBackend.Tests/SurveyBackend.Tests.csproj" />
+</Solution>

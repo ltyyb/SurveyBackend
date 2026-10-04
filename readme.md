@@ -69,17 +69,59 @@ Dev Build 从 `dev` 分支编译发行，包含最新且可能未经测试的更
 git clone -b <branch> https://github.com/SurveyBackend/SurveyBackend.git
 ```
 
-导航至主项目:
+导航至仓库根目录并构建解决方案:
 
 ```bash
-cd SurveyBackend/SurveyBackend
+cd SurveyBackend
+dotnet build SurveyBackend.slnx
 ```
+
+根目录保留 `SurveyBackend.slnx`、文档、版本文件及仓库级开发配置；后端项目、源码和配置示例位于 `src/SurveyBackend/`。可以使用支持 `.slnx` 格式的 IDE 打开根目录下的解决方案，或使用 VS Code 打开仓库根目录。
+
+项目内部按职责组织，每个顶层类型使用独立文件：
+
+```text
+src/SurveyBackend/
+├── BackgroundServices/          后台推送和审核服务
+├── Bot/                         OneBot 服务及接口
+│   └── Commands/                机器人指令
+│       └── Infrastructure/      指令接口、基类及注册器
+├── Configuration/               强类型配置选项
+├── Controllers/                 HTTP 接口
+├── Data/                        数据库上下文
+│   └── Migrations/              EF Core 迁移及模型快照
+├── Models/                      数据实体及枚举
+├── Services/                    AI 见解和问卷统计
+├── Properties/launchSettings.json
+├── GlobalUsings.cs
+├── Program.cs
+├── SurveyBackend.csproj
+└── appsettings.example.json
+```
+
+源码使用文件级命名空间，以 `SurveyBackend` 为根命名空间并对应项目内的目录。常用导入集中在 `GlobalUsings.cs`，其余导入和类型别名保留在使用它们的文件中。
+
+`tests/SurveyBackend.Tests/` 包含审核判定和配置启动校验的 xUnit 测试，可在根目录运行：
+
+```bash
+dotnet test SurveyBackend.slnx -c Release
+```
+
+测试按以下职责组织，每个用例独立创建数据和配置，不需要真实 MySQL、OneBot 或本地凭据：
+
+| 测试类 | 覆盖内容 |
+| --- | --- |
+| `BackgroundVerifyServiceTests` | 24 小时和同意率边界、UTC 时间、多条问卷票数隔离、新票和改票后的再次判定、状态与用户组保存、通知内容和去重、数据库保存与通知异常 |
+| `ReviewOptionsValidatorTests` | 票数和同意率合法范围、NaN / 无穷值、多个非法字段同时报告 |
+| `ReviewOptionsTests` | 缺省配置、真实配置示例和 JSON 绑定、非法值阻止启动、不同区域设置下的小数解析 |
+
+审核服务测试使用 EF Core InMemory、可推进的固定时钟和记录通知及异常的替身。保存失败时验证状态与用户组均未写入、不发送通知，下一轮可重新判定；通知失败时验证结果已保存且异常被记录，后续检查不会重复通知。实际 MySQL 查询、事务行为和 QQ 消息送达需在测试环境另行验证。
 
 参考 [数据库配置](#数据库配置) 和 [配置文件](#配置文件) 配置数据库和 `appsettings` .
 
 构建并运行程序:
 ```bash
-dotnet run
+dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 ```
 
 
@@ -87,9 +129,10 @@ dotnet run
 
 本项目使用 MySQL 作为数据库。将由 EF Core 自动管理，但不会自动进行迁移操作。 
 
-请执行以下命令生成迁移 SQL 指令:
+在仓库根目录执行以下命令生成迁移 SQL 指令:
 ```bash
-dotnet ef migrations script -o ./migrations.sql
+dotnet tool restore
+dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o ./migrations.sql
 ```
 再将 `./migrations.sql` 在你的 MySQL 数据库服务端执行。
 
@@ -104,9 +147,9 @@ dotnet ef migrations script -o ./migrations.sql
 ## 配置文件
 
 
-请复制仓库 / 发行版 / 构建产物内的 [appsettings.example.json](/SurveyBackend/appsettings.example.json) 并重命名为 `appsettings.json` , 后再进行生成及填写配置。
+从源码运行时，请将 [src/SurveyBackend/appsettings.example.json](/src/SurveyBackend/appsettings.example.json) 复制为同目录下的 `appsettings.json` 并填写配置。使用发行版 / 构建产物时，请在解压目录中复制配置示例并重命名为 `appsettings.json`。
 
-以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 [`appsettings.example.json` 示例文件](https://github.com/ltyyb/SurveyBackend/blob/master/SurveyBackend/appsettings.json)。
+以下是配置文件详解，**请在配置完毕后删除所有注释**或参考仓库内的 [`appsettings.example.json` 示例文件](/src/SurveyBackend/appsettings.example.json)。
 
 ```json
 {
@@ -122,7 +165,7 @@ dotnet ef migrations script -o ./migrations.sql
   // 数据库连接字符串
   "ConnectionStrings": {
     "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;charset=utf8mb4;SslMode=Required"
-  }, // 可以修改SslMode为None以禁用SSL连接
+  }, // 可以修改SslMode为Disabled以禁用SSL连接
 
   // 符合 OneBot v11 标准的 QQ 机器人配置
   // 连接方式为反向ws连接, 即本程序启动ws服务器供 OneBot 协议端连接
@@ -132,6 +175,12 @@ dotnet ef migrations script -o ./migrations.sql
     "mainGroupId": "23********1", // 主群号, 更多信息请参考审核流程参照
     "verifyGroupId": "21******59", // 审核群群号, 更多信息请参考审核流程参照
     "adminId": "56******0" // 管理员ID，将自动在users表中设置身份组为 SuperAdmin
+  },
+
+  // 常规审核阈值；超时通过规则固定为超过 24 小时、至少 3 票、同意率不少于 2/3
+  "Review": {
+    "MinimumVotes": 4, // 触发常规审核判定的最少总票数，必须为正整数
+    "AgreeRateThreshold": 0.6 // 同意率必须严格大于此值才通过，取值为 0 到 1
   },
 
   // AI 见解配置
@@ -159,6 +208,8 @@ dotnet ef migrations script -o ./migrations.sql
 > 与此同时，对配置文件合法性的强制检查仅在程序运行之初。如果配置文件修改出现错误可能导致某个组件无法恢复正常工作或引发不可预期的异常。
 > 
 > 因此请在修改配置文件后重启程序。
+
+`Review` 配置在启动时绑定并校验：`MinimumVotes` 必须为正整数，`AgreeRateThreshold` 必须为 0 到 1 之间的有限数值（包含端点）。非法值或无法转换为对应类型的值会阻止程序启动；阈值为 `1` 时，常规审核不会通过，但超时通过规则仍有效。省略整个配置节或单个字段时，分别使用默认值 `4` 和 `0.6`，现有配置无需补充字段即可启动。调整后须重启程序；本次变更不需要数据库迁移。
 
 ## 指令指南
 
@@ -203,7 +254,7 @@ dotnet ef migrations script -o ./migrations.sql
 
 ### 后台服务检查
 
-#### 未推送/未审核提交检查 | `BackgroudPushingService`
+#### 未推送/未审核提交检查 | `BackgroundPushingService`
 
 该后台服务每隔3小时执行一轮如下检查: 
 
@@ -224,8 +275,8 @@ dotnet ef migrations script -o ./migrations.sql
 
   1. 检查 `ReviewSubmissions` DbSet，查找 `r.Status == ReviewStatus.Pending` 的提交，计算其在 `ReviewVotes` 表中的投票结果。
   2. 对于每一条未审核的提交，计算其同意票与拒绝票的数量。
-  3. 如果总投票数 ≥ 5 张，尝试计算同意率。
-  4. 如果同意率达到 60% 以上，则判定审核通过，否则不通过。
+  3. 优先检查超时通过条件：提交时间 `Submission.CreatedAt`（UTC）距本轮检查时间**超过 24 小时**，且总投票数 ≥ 3、同意率 ≥ 2/3 时，直接通过。总票数仅统计同意票与拒绝票，恰好 2 票同意、1 票拒绝也满足同意率条件。
+  4. 未满足超时通过条件时，按 `Review` 配置进行常规判定：总票数 ≥ `MinimumVotes`（默认 4），且同意率**严格大于** `AgreeRateThreshold`（默认 0.6）则通过；达到票数但同意率未超过阈值则拒绝，票数不足则保持待审核。超时条件本身不会触发拒绝。时长按原提交时间计算，管理员重新设置为 `Pending` 不会重置该时间。判定在下一轮检查时执行，OneBot 不可用或服务暂停时延后。
   5. 如果审核通过，执行如下操作: 
       - 将 `r.Status` 设置为 `ReviewStatus.Approved`
       - 将该用户的 `UserGroup` 设置为 `UserGroup.VerifiedUser`。
@@ -273,14 +324,13 @@ dotnet ef migrations script -o ./migrations.sql
 
 应根据实际需要以及问卷实况进行微调。
 
-> [!TIP]
-> 你知道吗？你可以使用 `Utilities` 项目中的 `LLMTools` 来测试你的系统提示词文件的效果。
-> 
-> 但你需要手动设置 User Secret 以及写入程序的系统提示词等配置并在调试环境下进行测试。
->
-> 详见[`Utilities` 项目内的 `readme.md`](https://github.com/ltyyb/SurveyBackend/blob/master/Utilities/readme.md)
-> 
-> v4 后没时间改 `Utilities` 项目了，所以可能得等等。。
+### 测试系统提示词
+
+建议在测试环境中配置 `LLM` 节点和系统提示词文件，并为问卷设置需要分析的页面名称 `LLMPageNames`，然后提交测试问卷，检查生成的 AI 见解。
+
+修改系统提示词后，请重启后端。管理员或超级管理员可以通过机器人指令 `/survey reinsight <SubmissionId>` 为已有的审核提交重新生成见解；生成成功后，新见解会覆盖数据库中该提交的原有见解。
+
+已审核用户、管理员或超级管理员可以使用 `/survey insight <SubmissionId>` 查看已保存的见解。这两个指令均支持使用能够唯一匹配提交的 ID 前缀。
 
 ## 许可证
 

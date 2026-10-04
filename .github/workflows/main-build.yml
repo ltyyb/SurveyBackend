@@ -44,7 +44,7 @@ jobs:
 
       - name: Build self-contained executable
         run: |
-          dotnet publish SurveyBackend/SurveyBackend.csproj -c Release \
+          dotnet publish src/SurveyBackend/SurveyBackend.csproj -c Release \
             -r ${{ matrix.os }} \
             --self-contained false \
             /p:Version=${{ needs.versioning.outputs.final_version }} \
