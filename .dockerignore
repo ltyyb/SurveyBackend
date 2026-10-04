@@ -16,3 +16,8 @@ TestResults
 **/*.pem
 **/*.pfx
 **/*.log
+**/*.db
+**/*.db-*
+**/*.db.*
+**/*.sqlite*
+**/db_dump.sql

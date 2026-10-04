@@ -7,7 +7,6 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
@@ -18,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../src/SurveyBackend/appsettings.example.json" Link="appsettings.example.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/mysql-dump.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

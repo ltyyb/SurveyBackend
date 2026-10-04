@@ -8,11 +8,13 @@
 
 ---
 
-从 `v3` 版本开始本系统已使用 EF Core 管理数据库操作，且 `v4`/`v3` 均发生了较大的数据库结构变更，从更低版本升级请务必自行完成迁移，并注意备份数据。
+从 `v5` 版本开始本系统从 MySQL 迁移到 SQLite，从 `v4` 版本升级请先备份数据，然后按照 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入)
 
 > [!TIP]
-> `v2` 及更低版本存档在 [`legacy` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy) 。
+> `v4` 及更低版本存档在 [`legacy/v4` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy/v4) 。
 
+> [!TIP]
+> `v2` 及更低版本存档在 [`legacy/v2` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy/v2) 。
 ## 快速开始
 
 ### 从一般构建中启动
@@ -107,15 +109,16 @@ src/SurveyBackend/
 dotnet test SurveyBackend.slnx -c Release
 ```
 
-测试按以下职责组织，每个用例独立创建数据和配置，不需要真实 MySQL、OneBot 或本地凭据：
+测试按以下职责组织，每个用例独立创建数据和配置，不需要真实 OneBot 或本地凭据：
 
 | 测试类 | 覆盖内容 |
 | --- | --- |
 | `BackgroundVerifyServiceTests` | 24 小时和同意率边界、UTC 时间、多条问卷票数隔离、新票和改票后的再次判定、状态与用户组保存、通知内容和去重、数据库保存与通知异常 |
 | `ReviewOptionsValidatorTests` | 票数和同意率合法范围、NaN / 无穷值、多个非法字段同时报告 |
 | `ReviewOptionsTests` | 缺省配置、真实配置示例和 JSON 绑定、非法值阻止启动、不同区域设置下的小数解析 |
+| `SqliteMigrationTests` | 完整导入、失败清理、拒绝覆盖、原数据查询和改票、时间边界、外键级联、事务回滚、字段长度、WAL 和启动迁移检查 |
 
-审核服务测试使用 EF Core InMemory、可推进的固定时钟和记录通知及异常的替身。保存失败时验证状态与用户组均未写入、不发送通知，下一轮可重新判定；通知失败时验证结果已保存且异常被记录，后续检查不会重复通知。实际 MySQL 查询、事务行为和 QQ 消息送达需在测试环境另行验证。
+审核服务测试使用独立的 SQLite 内存数据库、可推进的固定时钟和记录通知及异常的替身。保存失败时验证状态与用户组均未写入、不发送通知，下一轮可重新判定；通知失败时验证结果已保存且异常被记录，后续检查不会重复通知。迁移测试使用磁盘 SQLite，覆盖逐字段导入校验、外键与级联删除、事务回滚、时间排序、API 读取、权限和改票。QQ 消息的实际送达需在测试群另行验证。
 
 参考 [数据库配置](#数据库配置) 和 [配置文件](#配置文件) 配置数据库和 `appsettings` .
 
@@ -127,22 +130,62 @@ dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 
 ## 数据库配置
 
-本项目使用 MySQL 作为数据库。将由 EF Core 自动管理，但不会自动进行迁移操作。 
+从 v5 版本开始，本项目仅使用 SQLite，运行时不再需要 MySQL 服务。默认数据库为程序（`SurveyBackend.dll` / 可执行文件）同目录的 `data.db`，与启动时的工作目录无关。`Database:Path` 可指定其他路径；相对路径仍以程序目录为基准，环境变量为 `Database__Path`。删除旧配置中的 `ConnectionStrings:DefaultConnection`，否则程序会明确拒绝启动，避免误连新建空库。
 
-在仓库根目录执行以下命令生成迁移 SQL 指令:
+新建的空库在首次启动时自动应用 SQLite 迁移；已有数据库有待应用迁移时拒绝启动，需要先停止服务、备份，再显式更新：
+
+```bash
+dotnet SurveyBackend.dll --migrate-database /absolute/path/data.db
+```
+
+源码开发也可以使用固定版本的 EF 工具，设计时无需 Bot 或本地凭据：
+
 ```bash
 dotnet tool restore
-dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o ./migrations.sql
+dotnet ef migrations script --project src/SurveyBackend --output migrations.sql
+dotnet ef database update --project src/SurveyBackend --connection "Data Source=/absolute/path/data.db;Foreign Keys=True"
 ```
-再将 `./migrations.sql` 在你的 MySQL 数据库服务端执行。
 
-> [!WARNING]
-> 本项目使用 `MySql.EntityFrameworkCore` 作为 EF Core Provider, 该 Provider 无法正常生成幂等的 SQL 脚本，因此请使用干净的 MySQL 数据库执行迁移脚本。必要时请检查生成的 `migrations.sql` 文件，确保其中的 SQL 指令符合预期。
-> 
-> 运行脚本前请务必做好备份！！
+请审阅结构变更后再更新已有库。SQLite 迁移使用新的基线，旧 MySQL 迁移不能直接在 SQLite 上执行。
 
-> 当 [Pomelo.EntityFrameworkCore.MySql](https://github.com/PomeloFoundation/Pomelo.EntityFrameworkCore.MySql) 适配 EF Core 10.0 后，我们计划迁移到该 Provider，以获得更好的性能和更稳定的迁移支持。
+### 从 v4 及以下版本迁移 - 从 MySQL Dump 导入
 
+导入入口仅用于离线转换，不提供 MySQL 运行时支持。停止原服务后导出完整数据，保留原 Dump 和旧数据库备份；不要把 MySQL SQL 直接交给 SQLite 执行。在仓库根目录执行：
+
+```bash
+dotnet run --project src/SurveyBackend -c Release -- --import-mysql-dump db_dump.sql data.db
+```
+
+发行版可直接运行 `dotnet SurveyBackend.dll --import-mysql-dump db_dump.sql data.db`。命令参数中的文件路径以当前工作目录为基准。
+
+导入器支持本项目提供的 UTF-8 Dump 格式：InnoDB `CREATE TABLE`、显式列名的 `INSERT INTO ... VALUES`（含多行值和字符串转义）、`SET FOREIGN_KEY_CHECKS`。未知 SQL、缺表/字段、重复键、非法 JSON/枚举/时间、孤立外键或不完整 Dump 会导致整个导入失败。其他导出格式请先转换到这一格式；导入器不会执行 Dump 内的任意 SQL。
+
+目标文件必须不存在。数据先写入同目录的临时库，按原字段类型导入，保留 ID、枚举、禁用状态、JSON 原文、时间精度和投票自增序列；所有行逐字段读回核对，并检查外键及 `integrity_check`。通过后合并 WAL，再将临时库重命名为目标文件。失败不会替换已有数据库，源 Dump 始终保留。ASCII ID 使用 `NOCASE`，保持原 MySQL 的大小写不敏感查询；所有时间按现有 UTC 约定读取，不对 Dump 时间做时区偏移。原 MySQL 迁移历史保存在 `__MySqlMigrationsHistory`，SQLite 自己使用 `__EFMigrationsHistory`；`__DataImport` 保存源文件 SHA-256 和导入行数。
+
+导入成功后，部署时将目标数据库复制到程序目录。`dotnet run` 的默认程序目录是 `bin/<配置>/net10.0/`；直接使用根目录数据库时，请通过绝对路径指定 `Database__Path` 或 `--Database:Path`，避免启动一个新的空库。`data.db`、SQLite 辅助文件和 `db_dump.sql` 已从 Git 和 Docker 构建上下文排除，发布也不会自动打包数据库。
+
+### Docker 持久化
+
+镜像以非 root 用户运行，在 `/data` 创建可写数据目录，并声明 `VOLUME /data`；镜像内默认设置 `Database__Path=/data/data.db`。必须显式挂载整个目录，以持久化数据库及 `-wal` / `-shm` 文件，不能只挂载 `data.db`，也不要把 `/app` 整体覆盖。
+
+Linux 上的部署示例（在首次启动前放入已迁移数据）：
+
+```bash
+mkdir -p storage
+cp data.db storage/data.db
+sudo chown -R 1654:1654 storage
+sudo chmod 700 storage
+docker build -t survey-backend .
+docker run -d --name survey-backend \
+  -p 8080:8080 -p 21568:21568 \
+  --mount type=bind,src="$(pwd)/storage",dst=/data \
+  --mount type=bind,src="$(pwd)/src/SurveyBackend/appsettings.json",dst=/app/appsettings.json,readonly \
+  survey-backend
+```
+
+`1654` 为所用 .NET 10 基础镜像的默认 `APP_UID`；更换基础镜像或运行用户时按实际 UID 设置数据目录权限。Windows / Docker Desktop 可用 PowerShell 的 `${PWD}/storage` 替代 `$(pwd)/storage`，并确保宿主目录允许容器写入。已有迁移库必须在首次启动前放入 `storage/data.db`。重建容器时继续挂载同一目录；删除容器不会删除该宿主目录。若使用命名卷，创建并复用同一个卷，先将迁移数据放入卷内，避免使用自动匿名卷而遗失数据位置。
+
+SQLite 启用外键、WAL 和 60 秒锁等待，适合单实例部署。数据目录应放在本机持久磁盘，避免跨主机共享或网络文件系统。备份时先停止服务，再复制数据库及仍存在的辅助文件；在线备份应使用 SQLite Backup API，不能只复制运行中的 `data.db`。不要将数据库或 Dump 提交到 Git。
 
 ## 配置文件
 
@@ -162,10 +205,10 @@ dotnet ef migrations script --project src/SurveyBackend/SurveyBackend.csproj -o 
   },
   "AllowedHosts": "*",
 
-  // 数据库连接字符串
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=<YourServerAddrOrIp>;Port=<MySqlServerPort>;Database=<YourDatabaseName>;User=<YourUsername>;Password=<YourPassword>;charset=utf8mb4;SslMode=Required"
-  }, // 可以修改SslMode为Disabled以禁用SSL连接
+  // SQLite 文件路径，相对路径以程序所在目录为基准
+  "Database": {
+    "Path": "data.db"
+  },
 
   // 符合 OneBot v11 标准的 QQ 机器人配置
   // 连接方式为反向ws连接, 即本程序启动ws服务器供 OneBot 协议端连接

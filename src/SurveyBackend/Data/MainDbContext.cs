@@ -10,13 +10,13 @@ public class MainDbContext : DbContext
     {
     }
     // 定义 DbSet 属性
-    public required DbSet<User> Users { get; set; }
-    public required DbSet<Survey> Surveys { get; set; }
-    public required DbSet<Questionnaire> Questionnaires { get; set; }
-    public required DbSet<Submission> Submissions { get; set; }
-    public required DbSet<ReviewSubmissionData> ReviewSubmissions { get; set; }
-    public required DbSet<ReviewVote> ReviewVotes { get; set; }
-    public required DbSet<Request> Requests { get; set; }
+    public DbSet<User> Users => Set<User>();
+    public DbSet<Survey> Surveys => Set<Survey>();
+    public DbSet<Questionnaire> Questionnaires => Set<Questionnaire>();
+    public DbSet<Submission> Submissions => Set<Submission>();
+    public DbSet<ReviewSubmissionData> ReviewSubmissions => Set<ReviewSubmissionData>();
+    public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
+    public DbSet<Request> Requests => Set<Request>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // 配置 用户表 实体
@@ -79,8 +79,7 @@ public class MainDbContext : DbContext
                   .HasForeignKey(x => x.SurveyId)
                   .OnDelete(DeleteBehavior.Cascade);
             var llmPageNamesProperty = entity.Property(x => x.LLMPageNames)
-                  .HasConversion(llmPageNamesConverter)
-                  .HasColumnType("json");
+                  .HasConversion(llmPageNamesConverter);
             llmPageNamesProperty.Metadata.SetValueComparer(llmPageNamesComparer);
             entity.Property(x => x.ReleaseDate)
                   .IsRequired();
@@ -187,6 +186,31 @@ public class MainDbContext : DbContext
             entity.Property(x => x.CreatedAt)
                   .IsRequired();
         });
+
+        var utcConverter = new ValueConverter<DateTime, DateTime>(
+            value => value,
+            value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entity.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTime))
+                {
+                    property.SetValueConverter(utcConverter);
+                }
+                else if (property.ClrType == typeof(string) && property.Name.EndsWith("Id", StringComparison.Ordinal))
+                {
+                    // Nanoid 和 QQ 号均为 ASCII，保留原数据库的大小写不敏感查询。
+                    property.SetCollation("NOCASE");
+                }
+                if (property.GetMaxLength() is { } maxLength)
+                {
+                    var tableName = entity.GetTableName()!;
+                    modelBuilder.Entity(entity.ClrType).ToTable(tableName, table => table.HasCheckConstraint(
+                        $"CK_{tableName}_{property.Name}_Length", $"length(\"{property.Name}\") <= {maxLength}"));
+                }
+            }
+        }
 
         base.OnModelCreating(modelBuilder);
     }

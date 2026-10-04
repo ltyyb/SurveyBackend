@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ internal sealed class ReviewTestContext : IDisposable
     public const long MainGroupId = 100;
     public const long VerifyGroupId = 200;
     private readonly ServiceProvider _provider;
+    private readonly SqliteConnection _connection;
     private long _nextQqId = 123456;
 
     public FixedTimeProvider Clock { get; }
@@ -27,10 +29,11 @@ internal sealed class ReviewTestContext : IDisposable
         SaveChangesInterceptor? saveChangesInterceptor = null)
     {
         var services = new ServiceCollection();
-        var databaseName = Guid.NewGuid().ToString();
+        _connection = new SqliteConnection("Data Source=:memory:;Foreign Keys=True");
+        _connection.Open();
         services.AddDbContext<MainDbContext>(builder =>
         {
-            builder.UseInMemoryDatabase(databaseName);
+            builder.UseSqlite(_connection);
             if (saveChangesInterceptor is not null)
             {
                 builder.AddInterceptors(saveChangesInterceptor);
@@ -41,6 +44,10 @@ internal sealed class ReviewTestContext : IDisposable
             ValidateScopes = true,
             ValidateOnBuild = true
         });
+        using (var scope = _provider.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<MainDbContext>().Database.Migrate();
+        }
         Clock = new FixedTimeProvider(now ?? Now);
         Service = new BackgroundVerifyService(Logger, Onebot,
             Options.Create(new BotOptions { MainGroupId = MainGroupId, VerifyGroupId = VerifyGroupId }),
@@ -124,5 +131,6 @@ internal sealed class ReviewTestContext : IDisposable
     {
         Service.Dispose();
         _provider.Dispose();
+        _connection.Dispose();
     }
 }
