@@ -104,9 +104,9 @@ public class InfoCommand : AuthorizedAsyncCommand
 
                         Submission ID: {submission.SubmissionId}
                         用户 QQ: {submission.User.QQId}
-                        作答的 Questionnaire ID: {submission.QuestionnaireId} ({submission.Questionnaire.ReleaseDate})
+                        作答的 Questionnaire ID: {submission.QuestionnaireId} ({submission.Questionnaire.ReleaseDate.ToDisplayTime()})
                         关联问卷: {submission.Questionnaire.Survey.Title} ({submission.Questionnaire.Survey.SurveyId})
-                        提交时间: {submission.CreatedAt}
+                        提交时间: {submission.CreatedAt.ToDisplayTime()}
                         是否禁用: {(submission.IsDisabled ? "是" : "否")}
 
                         问卷审核状态: {reviewStatusMsg}
@@ -124,9 +124,9 @@ public class InfoCommand : AuthorizedAsyncCommand
 
                         Submission ID: {submission.SubmissionId}
                         用户 QQ: {submission.User.QQId}
-                        作答的 Questionnaire ID: {submission.QuestionnaireId} ({submission.Questionnaire.ReleaseDate})
+                        作答的 Questionnaire ID: {submission.QuestionnaireId} ({submission.Questionnaire.ReleaseDate.ToDisplayTime()})
                         关联问卷: {submission.Questionnaire.Survey.Title} ({submission.Questionnaire.Survey.SurveyId})
-                        提交时间: {submission.CreatedAt}
+                        提交时间: {submission.CreatedAt.ToDisplayTime()}
                         是否禁用: {(submission.IsDisabled ? "是" : "否")}
                         """;
                 }
@@ -148,7 +148,7 @@ public class InfoCommand : AuthorizedAsyncCommand
 
                     Questionnaire ID: {questionnaire.QuestionnaireId}
                     关联 Survey: {questionnaire.Survey.Title} ({questionnaire.Survey.SurveyId})
-                    发布日期: {questionnaire.ReleaseDate}
+                    发布日期: {questionnaire.ReleaseDate.ToDisplayTime()}
                     是否为审核问卷: {(questionnaire.Survey.IsVerifySurvey ? "是" : "否")}
                     是否需要众审: {(questionnaire.Survey.NeedReview ? "是" : "否")}
                     是否唯一提交: {(questionnaire.Survey.UniquePerUser ? "是" : "否")}
@@ -173,7 +173,7 @@ public class InfoCommand : AuthorizedAsyncCommand
                     Survey ID: {survey.SurveyId}
                     标题: {survey.Title}
                     描述: {survey.Description}
-                    创建时间: {survey.CreatedAt}
+                    创建时间: {survey.CreatedAt.ToDisplayTime()}
                     是否为审核问卷: {(survey.IsVerifySurvey ? "是" : "否")}
                     是否需要众审: {(survey.NeedReview ? "是" : "否")}
                     是否唯一提交: {(survey.UniquePerUser ? "是" : "否")}
@@ -248,9 +248,9 @@ public class InfoCommand : AuthorizedAsyncCommand
                     ReviewSubmission ID: {reviewSubmission.ReviewSubmissionDataId}
                     关联 Submission ID: {reviewSubmission.SubmissionId}
                     用户 QQ: {reviewSubmission.Submission.User.QQId}
-                    作答的 Questionnaire ID: {reviewSubmission.Submission.QuestionnaireId} ({reviewSubmission.Submission.Questionnaire.ReleaseDate})
+                    作答的 Questionnaire ID: {reviewSubmission.Submission.QuestionnaireId} ({reviewSubmission.Submission.Questionnaire.ReleaseDate.ToDisplayTime()})
                     关联问卷: {reviewSubmission.Submission.Questionnaire.Survey.Title} ({reviewSubmission.Submission.Questionnaire.Survey.SurveyId})
-                    提交时间: {reviewSubmission.Submission.CreatedAt}
+                    提交时间: {reviewSubmission.Submission.CreatedAt.ToDisplayTime()}
                     是否属于审核问卷: {(reviewSubmission.Submission.Questionnaire.Survey.IsVerifySurvey ? "是" : "否")}
 
                     众审状态: {reviewStatusMsg}
@@ -276,7 +276,7 @@ public class InfoCommand : AuthorizedAsyncCommand
                     Request ID: {request.RequestId}
                     用户 QQ: {request.User.QQId}
                     请求类型: {request.RequestType}
-                    提交时间: {request.CreatedAt}
+                    提交时间: {request.CreatedAt.ToDisplayTime()}
                     """;
                 msgBuilder.AppendLine(msg);
                 msgBuilder.AppendLine(new string('=', 35));

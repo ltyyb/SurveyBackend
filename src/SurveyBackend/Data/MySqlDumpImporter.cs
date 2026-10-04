@@ -106,6 +106,11 @@ internal static class MySqlDumpImporter
         var result = new Dictionary<string, Table>(StringComparer.Ordinal);
         foreach (var entity in model.GetEntityTypes())
         {
+            // 管理员编辑授权仅存在于 SQLite，不属于旧 MySQL Dump。
+            if (entity.ClrType == typeof(ForceEditGrant))
+            {
+                continue;
+            }
             var name = entity.GetTableName()!;
             var store = StoreObjectIdentifier.Table(name, null);
             var columns = entity.GetProperties().Select(property => new Column(

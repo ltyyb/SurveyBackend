@@ -8,7 +8,7 @@
 
 ---
 
-从 `v5` 版本开始本系统从 MySQL 迁移到 SQLite，从 `v4` 版本升级请先备份数据，然后按照 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入)
+从 `v5` 版本开始本系统从 MySQL 迁移到 SQLite，从 `v4` 版本升级请先备份数据，然后按照 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入) 迁移数据库。
 
 > [!TIP]
 > `v4` 及更低版本存档在 [`legacy/v4` 分支](https://github.com/ltyyb/SurveyBackend/tree/legacy/v4) 。
@@ -60,6 +60,242 @@ Dev Build 从 `dev` 分支编译发行，包含最新且可能未经测试的更
 8. 打开 `appsettings.json` 文件，参考 [配置文件](#配置文件) 修改程序配置。
 
 9. 运行程序。
+
+### 从 Docker 中启动
+
+仓库提供多阶段构建的 `Dockerfile`，可自行构建，也可使用 [Docker Build 工作流](https://github.com/ltyyb/SurveyBackend/actions/workflows/docker-build.yml) 发布到 GitHub Container Registry（GHCR）的镜像。宿主机只需安装并启动 Docker；Windows 请使用 Docker Desktop 的 Linux 容器模式，无需另行安装 .NET 运行时。
+
+以下命令均在仓库根目录执行。Linux / macOS 示例使用 Bash，Windows 示例使用 PowerShell；两种 Shell 的路径写法和续行符不同，请使用对应示例。
+
+#### 1. 准备配置和数据目录
+
+克隆仓库并进入目录，默认使用 `main` 分支；测试 Dev 版本时可将分支改为 `dev`：
+
+```bash
+git clone -b main https://github.com/ltyyb/SurveyBackend.git
+cd SurveyBackend
+```
+
+Linux / macOS：
+
+```bash
+mkdir -p storage
+cp src/SurveyBackend/appsettings.example.json src/SurveyBackend/appsettings.json
+```
+
+Windows PowerShell：
+
+```powershell
+New-Item -ItemType Directory -Force storage | Out-Null
+Copy-Item src/SurveyBackend/appsettings.example.json src/SurveyBackend/appsettings.json
+```
+
+若已有 `appsettings.json`，请直接修改，避免再次复制覆盖。按照 [配置文件](#配置文件) 填写 OneBot 的 AccessToken、群号、管理员 QQ 号，以及问卷前端地址。旧配置中的 `ConnectionStrings:DefaultConnection` 必须删除。
+
+容器内路径与宿主机路径不同：
+
+| 用途 | 宿主机路径 | 容器内路径 |
+| --- | --- | --- |
+| 配置文件（只读） | `src/SurveyBackend/appsettings.json` | `/app/appsettings.json` |
+| SQLite 数据目录（可写） | `storage/` | `/data/` |
+| AI 系统提示词（可选，只读） | 自行创建的 `sysPrompt.txt` | `/app/sysPrompt.txt` |
+
+镜像设置 `Database__Path=/data/data.db`，优先于 JSON 中的 `Database:Path`，因此示例配置中的 `data.db` 无需修改。若要更换数据库路径，应同时调整环境变量并确保目标仍位于持久化目录内。
+
+新部署保持 `storage/` 为空，首次启动会自动建库。已有 SQLite 数据库必须在首次启动前放入 `storage/data.db`；从 v4 升级请先按 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入) 导入，或使用下方的容器导入命令。复制数据库前应停止原服务，备份时保留仍存在的 `-wal` / `-shm` 文件。
+
+镜像以非 root 用户运行。Linux 宿主机需给数据目录及已有数据库设置写权限：
+
+```bash
+sudo chown -R 1654:1654 storage
+sudo chmod 700 storage
+```
+
+`1654` 是所用 .NET 基础镜像的默认 `APP_UID`，详见 [Microsoft 容器用户说明](https://learn.microsoft.com/en-us/dotnet/core/compatibility/containers/8.0/app-user)。更换运行用户或基础镜像时应按实际 UID 调整。配置及提示词文件也必须允许容器用户读取；Docker Desktop 应允许共享该宿主目录。
+
+#### 2. 获取镜像
+
+Docker Build 工作流在 `main` / `dev` 分支推送时构建并发布 `linux/amd64` 镜像，也支持在 Actions 页面手动运行。PR 仅检查构建，不登录或推送镜像；其他分支上的手动运行也仅构建。
+
+| 分支 | 镜像标签 | 用途 |
+| --- | --- | --- |
+| `main` | `ghcr.io/ltyyb/surveybackend:latest` | 主分支最新构建 |
+| `dev` | `ghcr.io/ltyyb/surveybackend:dev` | 开发版，仅建议测试使用 |
+| `main` | `ghcr.io/ltyyb/surveybackend:5.0.0-<12位提交号>` | 按 `version.txt` 和提交号定位构建 |
+| `dev` | `ghcr.io/ltyyb/surveybackend:5.0.0-dev-<12位提交号>` | 按版本和提交号定位开发构建 |
+
+上表的 `5.0.0` 仅为版本示例。工作流使用内置 `GITHUB_TOKEN` 发布，无需配置 Docker Hub 密钥；发布方式参见 [GitHub 镜像发布说明](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)。首次成功发布后，请在仓库关联的 Package 设置中确认镜像可见性：需要允许匿名拉取时，将 Package 设为 public；私有镜像需先用具有 `read:packages` 权限的凭据登录 `ghcr.io`。Fork 仓库发布的镜像地址随仓库所有者和名称变化，统一转为小写。
+
+首次发布完成后，可拉取主分支镜像，并给它添加本地标签，以直接使用下方的启动示例：
+
+```bash
+docker pull ghcr.io/ltyyb/surveybackend:latest
+docker tag ghcr.io/ltyyb/surveybackend:latest survey-backend:local
+```
+
+使用 Dev 版时将 `latest` 换成 `dev`；固定部署版本时，使用对应的版本及提交号标签。也可以将启动命令末尾的 `survey-backend:local` 直接替换为完整 GHCR 镜像地址。
+
+自行构建则执行：
+
+```bash
+docker build -t survey-backend:local .
+```
+
+首次构建需要联网下载 .NET 基础镜像和 NuGet 依赖。`.dockerignore` 已排除本地 `appsettings.json`、数据库和 `db_dump.sql`；这些文件需在运行时挂载。自定义提示词同样建议放在构建上下文之外，避免将内容打包进镜像。
+
+#### 3. 启动容器
+
+Linux / macOS：
+
+```bash
+docker run -d --name survey-backend \
+  --restart unless-stopped \
+  -p 8080:8080 -p 21568:21568 \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  -e TZ=Asia/Shanghai \
+  --mount "type=bind,src=$(pwd)/storage,dst=/data" \
+  --mount "type=bind,src=$(pwd)/src/SurveyBackend/appsettings.json,dst=/app/appsettings.json,readonly" \
+  survey-backend:local
+```
+
+Windows PowerShell：
+
+```powershell
+docker run -d --name survey-backend `
+  --restart unless-stopped `
+  -p 8080:8080 -p 21568:21568 `
+  -e ASPNETCORE_ENVIRONMENT=Production `
+  -e ASPNETCORE_HTTP_PORTS=8080 `
+  -e TZ=Asia/Shanghai `
+  --mount "type=bind,src=${PWD}/storage,dst=/data" `
+  --mount "type=bind,src=${PWD}/src/SurveyBackend/appsettings.json,dst=/app/appsettings.json,readonly" `
+  survey-backend:local
+```
+
+示例使用 [Docker bind mount](https://docs.docker.com/engine/storage/bind-mounts/)，挂载前必须创建宿主目录和配置文件。请挂载整个 `/data`，以保存数据库及 WAL 辅助文件；不要只挂载 `data.db`，也不要用宿主目录覆盖整个 `/app`。
+
+| 端口映射 | 用途 |
+| --- | --- |
+| `8080:8080` | HTTP API，访问地址为 `http://<宿主机地址>:8080` |
+| `21568:21568` | OneBot v11 反向 WebSocket，容器端口对应 `Bot:wsPort` |
+
+冒号左侧是宿主机端口，右侧是容器端口。宿主机 8080 被占用时，可改为 `-p 18080:8080`；修改 `Bot:wsPort` 时必须同步修改 WebSocket 映射的右侧端口。`TZ=Asia/Shanghai` 用于本地时间和推送时段；`/survey info`、`/survey check`、`/survey review`（含别名 `rv`）中的数据库时间也按 `TZ` 指定的时区显示，未设置时使用系统时区。数据库存储和审核时长计算仍使用 UTC。
+
+镜像中的 `EXPOSE 8081` 不会自动配置 HTTPS；上述示例仅启用 HTTP 8080。生产部署可由反向代理提供 HTTPS，并将 API 转发至 8080；代理和后端同机时，可将映射改为 `-p 127.0.0.1:8080:8080`。直接在容器内启用 HTTPS 则需另外配置证书和 Kestrel，不能只添加端口映射。HTTP 端口设置参见 [Microsoft 容器端口说明](https://learn.microsoft.com/en-us/dotnet/core/compatibility/containers/8.0/aspnet-port)。
+
+启用 AI 见解时，先按 [AI 见解](#ai-见解-llm-insight) 创建系统提示词，将 `LLM:SysPromptPath` 设置为 `/app/sysPrompt.txt`，并在启动命令的镜像名之前增加挂载参数：
+
+```text
+--mount "type=bind,src=<宿主机提示词文件的绝对路径>,dst=/app/sysPrompt.txt,readonly"
+```
+
+不用 AI 见解时可将 `LLM:OpenAIKey` 留空，并省略提示词挂载，不影响问卷及审核功能。
+
+#### 4. 连接 OneBot 并检查运行状态
+
+在 OneBot 协议端配置反向 WebSocket 地址 `ws://<宿主机地址>:21568/`，AccessToken 与 `Bot:accessToken` 保持一致，并确保该端口可以从协议端所在机器访问。同一宿主机上直接运行的协议端可使用 `ws://127.0.0.1:21568/`；协议端在另一容器内时，`127.0.0.1` 指向该容器自身，应使用可达的宿主机地址，或在共享 Docker 网络中使用后端容器名和容器端口。
+
+```bash
+docker ps --filter name=survey-backend
+docker logs --tail 100 -f survey-backend
+```
+
+日志应显示数据库路径 `/data/data.db`、HTTP 监听端口和 OneBot 反向 WebSocket 服务器启动情况。连接后，在测试群发送 `/survey`，检查指令回复；HTTP 接口可使用已有问卷 ID 请求 `/api/Survey/<questionnaireId>`，并在 `SURVEY-USER-ID` 请求头中提供已有用户 ID。新库尚无问卷，需要先创建问卷再测试提交。生产环境不提供 `/openapi/v1.json`，访问根路径返回 404 也不代表启动失败。
+
+#### 5. 日常维护、备份和升级
+
+修改配置或提示词后重启容器；修改端口、环境变量或挂载参数时，需要删除旧容器并按新参数重新创建：
+
+```bash
+docker restart survey-backend
+docker stop survey-backend
+docker start survey-backend
+```
+
+这三条分别用于重启、停止和启动，按需要执行。重建时复用原 `storage/`，删除容器不会删除该宿主目录。
+
+升级前先停止容器，将整个 `storage/` 复制到独立的备份位置，同时保存配置和提示词。不要只复制运行中的 `data.db`。使用 GHCR 时重新执行第 2 步的 `docker pull` 和 `docker tag`；自行构建时更新源码并执行 `docker build -t survey-backend:local .`。`docker restart` 不会让旧容器使用新镜像。
+
+如果新版本包含数据库迁移，先按 [数据库配置](#数据库配置) 生成并审阅迁移 SQL，再使用新镜像对已备份的数据库执行一次性迁移。以下为 Bash 示例，PowerShell 请使用反引号续行并将 `$(pwd)` 替换为 `${PWD}`：
+
+```bash
+docker run --rm \
+  --mount "type=bind,src=$(pwd)/storage,dst=/data" \
+  survey-backend:local --migrate-database /data/data.db
+```
+
+此命令使用镜像已有的入口执行迁移，无需额外写 `dotnet SurveyBackend.dll`，也不需要 Bot 配置或端口映射。确认命令成功退出后，删除已停止的旧容器，再执行第 3 步（或下方 Compose 启动命令）：
+
+```bash
+docker rm survey-backend
+```
+
+迁移失败时保持服务停止并检查原因。回退到旧镜像时，应同时恢复与旧版本匹配的数据库备份。
+
+若需完全通过容器从 MySQL Dump 导入，可在首次启动前执行：
+
+```bash
+docker run --rm \
+  --mount "type=bind,src=$(pwd)/db_dump.sql,dst=/import/db_dump.sql,readonly" \
+  --mount "type=bind,src=$(pwd)/storage,dst=/data" \
+  survey-backend:local --import-mysql-dump /import/db_dump.sql /data/data.db
+```
+
+目标 `storage/data.db` 必须不存在，Dump 文件必须可由容器用户读取；格式限制和校验规则见 [迁移指南](#从-v4-及以下版本迁移---从-mysql-dump-导入)。导入和迁移期间不要运行使用同一数据库的后端实例。
+
+#### 可选：使用 Docker Compose
+
+也可在仓库根目录自行创建 `compose.yaml`，使用相同的配置与持久化目录：
+
+```yaml
+services:
+  survey-backend:
+    build: .
+    image: survey-backend:local
+    container_name: survey-backend
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Database__Path: /data/data.db
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:8080"
+      - "21568:21568"
+    volumes:
+      - type: bind
+        source: ./storage
+        target: /data
+      - type: bind
+        source: ./src/SurveyBackend/appsettings.json
+        target: /app/appsettings.json
+        read_only: true
+        bind:
+          create_host_path: false
+```
+
+需要 AI 见解时，按同样方式增加提示词文件的只读挂载。先完成第 1 步的配置和权限设置，再执行：
+
+```bash
+docker compose up -d --build
+docker compose logs --tail 100 -f
+```
+
+使用 GHCR 镜像时，删除 `build: .` 并将 `image` 改为 `ghcr.io/ltyyb/surveybackend:latest`（或指定版本标签），通过 `docker compose pull` 和 `docker compose up -d` 拉取并启动，无需本地构建。
+
+更新配置或提示词后使用 `docker compose restart`；升级前使用 `docker compose stop` 停止服务并备份，自行构建时先运行 `docker compose build`，使用 GHCR 时先运行 `docker compose pull`，再用新镜像迁移。GHCR 模式迁移命令中的 `survey-backend:local` 应换成 Compose 使用的完整镜像地址。完成后执行 `docker compose up -d`。停止并移除容器使用 `docker compose down`，bind mount 中的 `storage/` 会保留。`docker run` 和 Compose 两种方式任选一种，切换前先移除已有同名容器。
+
+#### 常见问题
+
+| 现象 | 检查方式 |
+| --- | --- |
+| 配置校验失败或容器反复退出 | 查看 `docker logs survey-backend`，检查真实 Bot / API 配置、审核阈值和旧 MySQL 配置是否已删除 |
+| `bind source path does not exist` | 确认挂载源文件存在，命令从仓库根目录执行，路径属于 Docker 服务所在宿主机 |
+| SQLite 无法打开或只读 | 检查 `/data` 是否挂载为可写、宿主目录及已有数据库是否允许 UID 1654 写入 |
+| 提示存在未应用的迁移 | 停止服务、备份并审阅 SQL，再运行上述一次性迁移命令 |
+| OneBot 无法连接 | 检查反向 WebSocket 地址、AccessToken、`Bot:wsPort`、端口映射和防火墙；其他容器内不能用 `127.0.0.1` 指代后端 |
+| AI 见解不可用 | 检查 API Key、模型及 Endpoint，并确认 `LLM:SysPromptPath` 指向容器内存在且可读的提示词文件 |
 
 ### 从源代码中启动
 
@@ -168,22 +404,7 @@ dotnet run --project src/SurveyBackend -c Release -- --import-mysql-dump db_dump
 
 镜像以非 root 用户运行，在 `/data` 创建可写数据目录，并声明 `VOLUME /data`；镜像内默认设置 `Database__Path=/data/data.db`。必须显式挂载整个目录，以持久化数据库及 `-wal` / `-shm` 文件，不能只挂载 `data.db`，也不要把 `/app` 整体覆盖。
 
-Linux 上的部署示例（在首次启动前放入已迁移数据）：
-
-```bash
-mkdir -p storage
-cp data.db storage/data.db
-sudo chown -R 1654:1654 storage
-sudo chmod 700 storage
-docker build -t survey-backend .
-docker run -d --name survey-backend \
-  -p 8080:8080 -p 21568:21568 \
-  --mount type=bind,src="$(pwd)/storage",dst=/data \
-  --mount type=bind,src="$(pwd)/src/SurveyBackend/appsettings.json",dst=/app/appsettings.json,readonly \
-  survey-backend
-```
-
-`1654` 为所用 .NET 10 基础镜像的默认 `APP_UID`；更换基础镜像或运行用户时按实际 UID 设置数据目录权限。Windows / Docker Desktop 可用 PowerShell 的 `${PWD}/storage` 替代 `$(pwd)/storage`，并确保宿主目录允许容器写入。已有迁移库必须在首次启动前放入 `storage/data.db`。重建容器时继续挂载同一目录；删除容器不会删除该宿主目录。若使用命名卷，创建并复用同一个卷，先将迁移数据放入卷内，避免使用自动匿名卷而遗失数据位置。
+完整的构建、配置、目录权限、启动及升级步骤见 [从 Docker 中启动](#从-docker-中启动)。已有迁移库必须在首次启动前放入 `storage/data.db`。重建容器时继续挂载同一目录；删除容器不会删除该宿主目录。若使用命名卷，创建并复用同一个卷，先将迁移数据放入卷内，避免使用自动匿名卷而遗失数据位置。
 
 SQLite 启用外键、WAL 和 60 秒锁等待，适合单实例部署。数据目录应放在本机持久磁盘，避免跨主机共享或网络文件系统。备份时先停止服务，再复制数据库及仍存在的辅助文件；在线备份应使用 SQLite Backup API，不能只复制运行中的 `data.db`。不要将数据库或 Dump 提交到 Git。
 
@@ -257,6 +478,39 @@ SQLite 启用外键、WAL 和 60 秒锁等待，适合单实例部署。数据�
 ## 指令指南
 
 你可以在会话中使用 `/survey` 指令来测试机器人是否连接正常以及查看可用的子指令列表。
+
+### 管理员编辑或代填问卷
+
+管理员和超级管理员可在私聊中使用：
+
+```text
+/survey force-edit <SubmissionId / ReviewSubmissionDataId / UserId / QQ号> [SurveyId]
+```
+
+请提供完整 ID。使用 SubmissionId 或 ReviewSubmissionDataId 时，编辑对应提交；使用 UserId 或 QQ 号时，编辑该用户最新的入群问卷提交（包括已停用的提交）。若没有入群提交，则生成代填链接；尚未注册的 QQ 号会自动注册。存在多份入群问卷时，命令会列出 SurveyId，按提示追加选择。代填采用所选 Survey 最新发布的 Questionnaire；编辑已有提交始终使用原版本。尚未发布题面的问卷不能代填。
+
+链接格式为 `SurveyLinkEndpoint/actions/forceEdit?requestId=...`，两小时内有效，保存成功后失效。链接具有编辑权限，请勿转发。签发管理员被降级、请求被停用或目标被删除后，链接也会失效。静态前端位于 [`frontend/Survey/actions/forceEdit/`](frontend/Survey/actions/forceEdit/README.md)，复制整个目录并配置 `config.js` 即可部署，无需重新构建原 Vue 前端。接口响应保持现有的 `status` / `error` 风格：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/Survey/force-edit/{requestId}` | 校验授权并取得题面和已有答案 |
+| POST | `/api/Survey/force-edit/{requestId}/submission` | 保存编辑结果或代填提交 |
+
+GET 成功返回 `status: 0`、`requestId`、`mode`（`edit` / `create`）、目标 `userId` / `qqId`、`questionnaireId`、`submissionId`、`surveyJson`、`surveyData` 和 UTC `expiresAt`。`surveyJson` 已按目标用户替换 QQ 号和问卷发布日期占位符；创建模式下 `submissionId` / `surveyData` 为 `null`。
+
+POST 请求体仅需要答案，`answers` 是序列化后的 JSON 对象字符串：
+
+```json
+{
+  "answers": "{\"question1\":\"answer\"}"
+}
+```
+
+提交者、问卷版本及编辑目标由后端授权记录绑定，前端不能指定其他目标。成功返回 `status: 0` 和 `submissionId`；非法答案返回 400，授权无效、过期或已保存返回 403，目标消失返回 404。代填链接签发后用户已提交入群问卷，或所选 Survey 已取消入群问卷标记时，保存返回 409，请重新获取链接。失败不会消耗请求；重复或并发保存同一链接最多成功一次。
+
+编辑会保留提交者、原提交时间、停用状态、审核状态、投票和用户身份组；旧 AI 见解会标记为需要重新生成，可使用 `/survey reinsight <SubmissionId>` 更新。代填会创建待审核记录，将 `NewComer` 改为 `PendingUser`，保留其他身份组，并沿用新提交的 AI 见解和群通知流程。通知失败会记录错误，已保存的数据仍保留。
+
+此次新增 `force_edit_grants` 表。已有 SQLite 数据库需停止服务、备份并审阅 `AddForceEditGrants` 迁移 SQL，再运行 `--migrate-database <数据库路径>`；空库会自动初始化。旧 MySQL Dump 导入格式保持不变。
 
 ## 审核流程参照
 

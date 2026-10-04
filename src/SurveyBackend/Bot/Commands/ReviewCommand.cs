@@ -47,9 +47,9 @@ public class ReviewCommand : AuthorizedAsyncCommand
 
                     Submission ID: {reviewSubmission.SubmissionId}
                     用户 QQ: {reviewSubmission.Submission.User.QQId}
-                    作答的 Questionnaire ID: {reviewSubmission.Submission.QuestionnaireId} ({reviewSubmission.Submission.Questionnaire.ReleaseDate})
+                    作答的 Questionnaire ID: {reviewSubmission.Submission.QuestionnaireId} ({reviewSubmission.Submission.Questionnaire.ReleaseDate.ToDisplayTime()})
                     关联问卷: {reviewSubmission.Submission.Questionnaire.Survey.Title} ({reviewSubmission.Submission.Questionnaire.Survey.SurveyId})
-                    提交时间: {reviewSubmission.Submission.CreatedAt}
+                    提交时间: {reviewSubmission.Submission.CreatedAt.ToDisplayTime()}
                     """;
             return CommandResponse.SuccessResponse(new Message(msg));
         }

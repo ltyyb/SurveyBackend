@@ -10,7 +10,7 @@ namespace SurveyBackend.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [EnableCors("AllowAll")]
-public class SurveyController : ControllerBase
+public partial class SurveyController : ControllerBase
 {
     private readonly BotOptions _botOptions;
     private readonly ApiOptions _apiOptions;
@@ -19,7 +19,8 @@ public class SurveyController : ControllerBase
     private readonly IOnebotService _onebot;
     private readonly ILoggerFactory _loggerFactory;
     private readonly MainDbContext _db;
-    public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IOptions<BotOptions> botOptions, IOptions<ApiOptions> apiOptions, IOptions<LlmOptions> llmOptions, IOnebotService onebotService, MainDbContext db)
+    private readonly TimeProvider _timeProvider;
+    public SurveyController(ILogger<SurveyController> logger, ILoggerFactory loggerFactory, IOptions<BotOptions> botOptions, IOptions<ApiOptions> apiOptions, IOptions<LlmOptions> llmOptions, IOnebotService onebotService, MainDbContext db, TimeProvider? timeProvider = null)
     {
         _botOptions = botOptions.Value;
         _apiOptions = apiOptions.Value;
@@ -28,6 +29,7 @@ public class SurveyController : ControllerBase
         _onebot = onebotService;
         _loggerFactory = loggerFactory;
         _db = db;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
 
