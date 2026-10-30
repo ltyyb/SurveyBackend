@@ -11,6 +11,7 @@ internal sealed class RecordingOnebotService : IOnebotService
     public HttpApiClient? onebotApi => null;
     public DateTime LastMessageTime => DateTime.UtcNow;
     public List<(long GroupId, string Content)> GroupMessages { get; } = [];
+    public List<(long UserId, string Content)> PrivateMessages { get; } = [];
     public Func<long, Message, Task>? OnSend { get; set; }
 
     public async Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, Message message)
@@ -26,7 +27,11 @@ internal sealed class RecordingOnebotService : IOnebotService
     public Task<SendGroupMessageResponseData?> SendGroupMessageAsync(long groupId, string message) => throw new NotSupportedException();
     public Task<SendMessageResponseData?> SendMessageAsync(Sisters.WudiLib.Posts.Endpoint endpoint, string message) => throw new NotSupportedException();
     public Task<SendMessageResponseData?> SendMessageAsync(Sisters.WudiLib.Posts.Endpoint endpoint, Message message) => throw new NotSupportedException();
-    public Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, string message) => throw new NotSupportedException();
+    public Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, string message)
+    {
+        PrivateMessages.Add((qqId, message));
+        return Task.FromResult<SendPrivateMessageResponseData?>(null);
+    }
     public Task<SendPrivateMessageResponseData?> SendPrivateMessageAsync(long qqId, Message message) => throw new NotSupportedException();
     public Task<SendMessageResponseData?> SendMessageWithAtAsync(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, string message) => throw new NotSupportedException();
     public Task<SendMessageResponseData?> SendMessageWithAtAsync(Sisters.WudiLib.Posts.Endpoint endpoint, long userId, SendingMessage message) => throw new NotSupportedException();

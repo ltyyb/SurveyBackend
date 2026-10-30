@@ -1,5 +1,6 @@
 using System.Reflection;
 using SurveyBackend.BackgroundServices;
+using SurveyBackend.Services.Backups;
 
 namespace SurveyBackend;
 
@@ -37,6 +38,10 @@ public class Program
             .Validate(options => Uri.TryCreate(options.SurveyLinkEndpoint, UriKind.Absolute, out _), "API:SurveyLinkEndpoint 必须是有效的绝对 URL。")
             .ValidateOnStart();
         builder.Services.AddSingleton<IValidateOptions<ReviewOptions>, ReviewOptionsValidator>();
+        builder.Services.AddSingleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>();
+        builder.Services.AddOptions<BackupOptions>()
+            .BindConfiguration(BackupOptions.SectionName)
+            .ValidateOnStart();
         builder.Services.AddOptions<ReviewOptions>()
             .BindConfiguration(ReviewOptions.SectionName)
             .ValidateOnStart();
@@ -52,6 +57,15 @@ public class Program
         var databaseOptions = builder.Configuration.GetSection(DatabaseOptions.SectionName).Get<DatabaseOptions>() ?? new();
         var databasePath = databaseOptions.GetFullPath(AppContext.BaseDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+
+        builder.Services.AddSingleton(sp => new BackupStore(
+            sp.GetRequiredService<IOptions<BackupOptions>>().Value.GetDirectory(databasePath),
+            sp.GetRequiredService<ILogger<BackupStore>>()));
+        builder.Services.AddSingleton<SqliteBackupSnapshot>();
+        builder.Services.AddSingleton<IBackupUploader, OssBackupUploader>();
+        builder.Services.AddSingleton(sp => new BackupService(sp.GetRequiredService<IOptions<BackupOptions>>(),
+            databasePath, sp.GetRequiredService<BackupStore>(), sp.GetRequiredService<SqliteBackupSnapshot>(),
+            sp.GetRequiredService<IBackupUploader>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<BackupService>>()));
 
         builder.Services.AddDbContextPool<MainDbContext>(options =>
         {
@@ -79,6 +93,7 @@ public class Program
         builder.Services.AddSingleton<IHostedService, BackgroundPushingService>();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IHostedService, BackgroundVerifyService>();
+        builder.Services.AddSingleton<IHostedService, BackgroundBackupService>();
 
 
         var app = builder.Build();

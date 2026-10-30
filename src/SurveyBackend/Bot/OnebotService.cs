@@ -3,6 +3,7 @@ using Sisters.WudiLib.Posts;
 using Sisters.WudiLib.Responses;
 using Sisters.WudiLib.WebSocket.Reverse;
 using SurveyBackend.Bot.Commands;
+using SurveyBackend.Services.Backups;
 using Message = Sisters.WudiLib.Posts.Message;
 
 namespace SurveyBackend.Bot;
@@ -78,6 +79,7 @@ public class OnebotService : BackgroundService, IOnebotService
     private readonly IOptions<LlmOptions> _llmOptions;
     private readonly IOptionsMonitor<ApplicationOptions> _applicationOptions;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly BackupService _backups;
 
     private long mainGroupId;
     private long verifyGroupId;
@@ -100,7 +102,8 @@ public class OnebotService : BackgroundService, IOnebotService
         IOptions<ApiOptions> apiOptions,
         IOptions<LlmOptions> llmOptions,
         IOptionsMonitor<ApplicationOptions> applicationOptions,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        BackupService backups)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -109,6 +112,7 @@ public class OnebotService : BackgroundService, IOnebotService
         _llmOptions = llmOptions;
         _applicationOptions = applicationOptions;
         _scopeFactory = scopeFactory;
+        _backups = backups;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -177,6 +181,7 @@ public class OnebotService : BackgroundService, IOnebotService
             new CreateSurveyCommand(_scopeFactory),
             new CreateQuestionnaireCommand(_scopeFactory, _apiOptions),
             new ForceEditCommand(_scopeFactory, _apiOptions),
+            new BackupCommand(_scopeFactory, _backups, _loggerFactory.CreateLogger<BackupCommand>()),
             new VoteCommand(_scopeFactory),
             new SetUserCommand(_scopeFactory, _loggerFactory.CreateLogger<SetUserCommand>()),
             new GetCommand(_scopeFactory, _apiOptions),

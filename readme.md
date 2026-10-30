@@ -364,6 +364,50 @@ dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 ```
 
 
+## 在线备份配置
+
+所有备份设置均位于 `Backup` 下，完整字段见 `src/SurveyBackend/appsettings.example.json`。默认关闭；配置好目录和 OSS 后将 `Backup:Enabled` 设为 `true`。配置修改后重启生效，不需要数据库迁移。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `Enabled` | `false` | 启用自动和手动备份 |
+| `Interval` | `01:00:00` | 自动备份间隔，支持 1 分钟到 30 天 |
+| `Directory` | `backups` | 相对数据库所在目录解析；Docker 默认保存到 `/data/backups` |
+| `LocalRetentionDays` | `7` | 已上传备份的本地保留天数；未启用 OSS 时按本地备份处理 |
+| `MaxLocalBytes` | `10737418240` | 备份目录容量上限，默认 10 GiB |
+| `MinFreeDiskBytes` | `536870912` | 备份后预留磁盘空间，默认 512 MiB |
+| `Timeout` / `UploadTimeout` | `00:05:00` | 单份快照和单次上传时限 |
+| `PagesPerStep` / `StepDelay` | `128` / `00:00:00.010` | 每批复制页数及批次间等待时间 |
+| `FullCheckInterval` | `1.00:00:00` | 完整数据库校验间隔，其余快照执行快速及外键检查 |
+| `UploadRetryInterval` / `MaxUploadRetryInterval` | `00:01:00` / `00:30:00` | 上传失败后指数退避的初始和最大间隔 |
+
+`Backup:Oss` 包含 `Enabled`、`Region`、可选的 HTTPS `Endpoint`、`Bucket`、`Prefix`、`AccessKeyId`、`AccessKeySecret` 和可选的 `SecurityToken`。凭据填写在本地 `appsettings.json`，也可通过 `Backup__Oss__AccessKeySecret` 等环境变量覆盖；不要提交真实凭据。使用临时 STS 凭据时，到期前需更新配置并重启。
+
+OSS 端配置私有 Bucket、默认 SSE-KMS 加密和按备份前缀匹配的生命周期。应用不做客户端加密，也不修改 Bucket 配置或删除远端对象。权限按实际 Bucket/KMS 设置授予，上传使用 `oss:PutObject`，服务器端 KMS 可能还需要 `kms:GenerateDataKey` / `kms:Decrypt`。参见 [OSS 上传说明](https://www.alibabacloud.com/help/en/oss/developer-reference/upload-object-using-oss-sdk-for-csharp-v2)。
+
+快照通过 SQLite Online Backup API 分批复制，复制期间继续提供业务服务，不直接拷贝运行中的数据库或强制 checkpoint。每份副本校验后转换成独立数据库文件，并记录 SHA-256、迁移版本和应用版本；同目录临时文件刷盘后再发布。备份仍有磁盘和 CPU 开销，实际接口延迟需要按部署环境验证。
+
+本地记录使用独立 JSON 文件持久化，目录锁防止多个进程同时维护同一备份目录。进程中断后的任务标记为中断，未完成的上传恢复为等待重试。保留期只清理本功能生成的记录及文件：待上传文件、最近任务、最近有效快照和最近已上传快照受到保护。目录容量或磁盘空间不足时暂停新快照，不删除待上传文件来腾空间。
+
+管理员和超级管理员可使用以下指令；其他身份组不能查看配置或触发任务：
+
+| 指令 | 行为 |
+| --- | --- |
+| `/survey backup` | 最近任务的本地结果、上传状态、失败摘要、最近成功快照及下次计划 |
+| `/survey backup run` | 立即开始；任务执行中则返回同一任务编号，不重复排队 |
+| `/survey backup list [页码]` | 每页 10 份本地数据库及上传状态 |
+| `/survey backup info` | 查看生效配置，隐藏 AccessKey、Secret 和 STS Token |
+
+首次启动立即备份；已有备份时沿用持久化计划，超过一个周期没有成功快照则补做一次。自动任务按固定间隔运行，手动任务不重置自动计划；与运行中任务重叠时合并。自动备份和上传重试不依赖 OneBot 是否连接。失败时记录日志；OneBot 可用时私聊 `Bot:adminId` 告警，成功告警每小时最多一次，发送失败每 5 分钟最多重试一次。进程或整机停止时无法自行告警，重要部署还应配置宿主机监控。
+
+本地成功与异地成功分别记录。上传顺序为数据库、JSON 清单；远端清单存在表示该次上传已完成，清单含 SHA-256 和版本信息。网络错误按配置指数退避，重启后继续上传；改变 Region、Endpoint、Bucket 或对象前缀时，旧目标的积压文件会停止上传并标记失败，避免误传。文件丢失或哈希变化也需要人工处理。应用不会清理这些失败文件。
+
+Docker 默认在已有 `/data` 卷内保存 `backups/`；如需独立磁盘，将 `Backup:Directory` 设为 `/backups` 并额外挂载可写目录，权限与 `/data` 一致。备份目录请放在 Web 根目录之外，自定义目录还应自行从 Git 和镜像构建上下文中排除。约每小时一份时，7 天约 168 份；达到容量上限后需增加空间或处理积压。
+
+恢复时先停止服务，保留当前数据库及仍存在的 `-wal` / `-shm` 文件到独立位置。下载匹配的 `.db` 和 `.json`，核对 SHA-256，运行 SQLite 的 `integrity_check`、`foreign_key_check`，再将已验证快照作为新数据库启动。应用版本应与清单匹配；需要升级时另行按迁移流程执行。恢复演练必须在隔离环境中进行并禁用真实 QQ 投递；配置和提示词需另行备份。
+
+验证：Release 构建及备份测试覆盖 WAL 未 checkpoint 的数据、并发事务、容量保护、中断恢复、上传重试、调度合并、命令权限和凭据隐藏；SDK 测试使用合成凭据及录制 HTTP 处理器验证签名、数据库/清单顺序与 CRC 不匹配。另有真实后端子进程测试，使用临时 SQLite、合成配置验证离线 OneBot 下的自动备份、恢复读取与 HTTP 问卷查询。上述检查不代表真实 OSS 权限/KMS、Docker 环境或 QQ 投递已验证。
+
 ## 数据库配置
 
 从 v5 版本开始，本项目仅使用 SQLite，运行时不再需要 MySQL 服务。默认数据库为程序（`SurveyBackend.dll` / 可执行文件）同目录的 `data.db`，与启动时的工作目录无关。`Database:Path` 可指定其他路径；相对路径仍以程序目录为基准，环境变量为 `Database__Path`。删除旧配置中的 `ConnectionStrings:DefaultConnection`，否则程序会明确拒绝启动，避免误连新建空库。
