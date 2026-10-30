@@ -35,6 +35,33 @@ public sealed class BackupStore(string directory, ILogger<BackupStore> logger)
         File.Move(temporary, GetPath(record.Id, ".json"), overwrite: true);
     }
 
+    public BackupSchedule? ReadSchedule()
+    {
+        var path = Path.Combine(DirectoryPath, "schedule.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return JsonSerializer.Deserialize<BackupSchedule>(stream);
+        }
+        catch (JsonException)
+        {
+            logger.LogError("备份计划文件损坏，将重新计算自动计划。");
+            return null;
+        }
+    }
+
+    public void SaveSchedule(BackupSchedule schedule)
+    {
+        var path = Path.Combine(DirectoryPath, "schedule.json");
+        using (var stream = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(stream, schedule, JsonOptions);
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(path + ".tmp", path, overwrite: true);
+    }
+
     public IReadOnlyList<BackupRecord> ReadAll()
     {
         if (!Directory.Exists(DirectoryPath))

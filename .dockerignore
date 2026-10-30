@@ -21,3 +21,6 @@ TestResults
 **/*.db.*
 **/*.sqlite*
 **/db_dump.sql
+**/backups/*.json
+**/backups/*.json.tmp
+**/backups/.backup.lock

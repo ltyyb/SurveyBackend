@@ -1,5 +1,6 @@
 using System.Reflection;
 using SurveyBackend.BackgroundServices;
+using SurveyBackend.Services.Backups;
 
 namespace SurveyBackend;
 
@@ -57,6 +58,15 @@ public class Program
         var databasePath = databaseOptions.GetFullPath(AppContext.BaseDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
 
+        builder.Services.AddSingleton(sp => new BackupStore(
+            sp.GetRequiredService<IOptions<BackupOptions>>().Value.GetDirectory(databasePath),
+            sp.GetRequiredService<ILogger<BackupStore>>()));
+        builder.Services.AddSingleton<SqliteBackupSnapshot>();
+        builder.Services.AddSingleton<IBackupUploader, OssBackupUploader>();
+        builder.Services.AddSingleton(sp => new BackupService(sp.GetRequiredService<IOptions<BackupOptions>>(),
+            databasePath, sp.GetRequiredService<BackupStore>(), sp.GetRequiredService<SqliteBackupSnapshot>(),
+            sp.GetRequiredService<IBackupUploader>(), sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<BackupService>>()));
+
         builder.Services.AddDbContextPool<MainDbContext>(options =>
         {
             options.UseSqlite(SqliteDatabase.ConnectionString(databasePath), opt => opt.CommandTimeout(60));
@@ -83,6 +93,7 @@ public class Program
         builder.Services.AddSingleton<IHostedService, BackgroundPushingService>();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IHostedService, BackgroundVerifyService>();
+        builder.Services.AddSingleton<IHostedService, BackgroundBackupService>();
 
 
         var app = builder.Build();
