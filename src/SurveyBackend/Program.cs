@@ -37,6 +37,10 @@ public class Program
             .Validate(options => Uri.TryCreate(options.SurveyLinkEndpoint, UriKind.Absolute, out _), "API:SurveyLinkEndpoint 必须是有效的绝对 URL。")
             .ValidateOnStart();
         builder.Services.AddSingleton<IValidateOptions<ReviewOptions>, ReviewOptionsValidator>();
+        builder.Services.AddSingleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>();
+        builder.Services.AddOptions<BackupOptions>()
+            .BindConfiguration(BackupOptions.SectionName)
+            .ValidateOnStart();
         builder.Services.AddOptions<ReviewOptions>()
             .BindConfiguration(ReviewOptions.SectionName)
             .ValidateOnStart();

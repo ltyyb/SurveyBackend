@@ -364,6 +364,27 @@ dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 ```
 
 
+## 在线备份配置
+
+所有备份设置均位于 `Backup` 下，完整字段见 `src/SurveyBackend/appsettings.example.json`。默认关闭；配置好目录和 OSS 后将 `Backup:Enabled` 设为 `true`。配置修改后重启生效，不需要数据库迁移。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `Enabled` | `false` | 启用自动和手动备份 |
+| `Interval` | `01:00:00` | 自动备份间隔，支持 1 分钟到 30 天 |
+| `Directory` | `backups` | 相对数据库所在目录解析；Docker 默认保存到 `/data/backups` |
+| `LocalRetentionDays` | `7` | 已上传备份的本地保留天数；未启用 OSS 时按本地备份处理 |
+| `MaxLocalBytes` | `10737418240` | 备份目录容量上限，默认 10 GiB |
+| `MinFreeDiskBytes` | `536870912` | 备份后预留磁盘空间，默认 512 MiB |
+| `Timeout` / `UploadTimeout` | `00:05:00` | 单份快照和单次上传时限 |
+| `PagesPerStep` / `StepDelay` | `128` / `00:00:00.010` | 每批复制页数及批次间等待时间 |
+| `FullCheckInterval` | `1.00:00:00` | 完整数据库校验间隔，其余快照执行快速及外键检查 |
+| `UploadRetryInterval` / `MaxUploadRetryInterval` | `00:01:00` / `00:30:00` | 上传失败后指数退避的初始和最大间隔 |
+
+`Backup:Oss` 包含 `Enabled`、`Region`、可选的 HTTPS `Endpoint`、`Bucket`、`Prefix`、`AccessKeyId`、`AccessKeySecret` 和可选的 `SecurityToken`。凭据填写在本地 `appsettings.json`，也可通过 `Backup__Oss__AccessKeySecret` 等环境变量覆盖；不要提交真实凭据。使用临时 STS 凭据时，到期前需更新配置并重启。
+
+OSS 端配置私有 Bucket、默认 SSE-KMS 加密和按备份前缀匹配的生命周期。应用不做客户端加密，也不修改 Bucket 配置或删除远端对象。权限按实际 Bucket/KMS 设置授予，上传使用 `oss:PutObject`，服务器端 KMS 可能还需要 `kms:GenerateDataKey` / `kms:Decrypt`。参见 [OSS 上传说明](https://www.alibabacloud.com/help/en/oss/developer-reference/upload-object-using-oss-sdk-for-csharp-v2)。
+
 ## 数据库配置
 
 从 v5 版本开始，本项目仅使用 SQLite，运行时不再需要 MySQL 服务。默认数据库为程序（`SurveyBackend.dll` / 可执行文件）同目录的 `data.db`，与启动时的工作目录无关。`Database:Path` 可指定其他路径；相对路径仍以程序目录为基准，环境变量为 `Database__Path`。删除旧配置中的 `ConnectionStrings:DefaultConnection`，否则程序会明确拒绝启动，避免误连新建空库。
