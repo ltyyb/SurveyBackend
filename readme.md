@@ -385,6 +385,10 @@ dotnet run --project src/SurveyBackend/SurveyBackend.csproj
 
 OSS 端配置私有 Bucket、默认 SSE-KMS 加密和按备份前缀匹配的生命周期。应用不做客户端加密，也不修改 Bucket 配置或删除远端对象。权限按实际 Bucket/KMS 设置授予，上传使用 `oss:PutObject`，服务器端 KMS 可能还需要 `kms:GenerateDataKey` / `kms:Decrypt`。参见 [OSS 上传说明](https://www.alibabacloud.com/help/en/oss/developer-reference/upload-object-using-oss-sdk-for-csharp-v2)。
 
+快照通过 SQLite Online Backup API 分批复制，复制期间继续提供业务服务，不直接拷贝运行中的数据库或强制 checkpoint。每份副本校验后转换成独立数据库文件，并记录 SHA-256、迁移版本和应用版本；同目录临时文件刷盘后再发布。备份仍有磁盘和 CPU 开销，实际接口延迟需要按部署环境验证。
+
+本地记录使用独立 JSON 文件持久化，目录锁防止多个进程同时维护同一备份目录。进程中断后的任务标记为中断，未完成的上传恢复为等待重试。保留期只清理本功能生成的记录及文件：待上传文件、最近任务、最近有效快照和最近已上传快照受到保护。目录容量或磁盘空间不足时暂停新快照，不删除待上传文件来腾空间。
+
 ## 数据库配置
 
 从 v5 版本开始，本项目仅使用 SQLite，运行时不再需要 MySQL 服务。默认数据库为程序（`SurveyBackend.dll` / 可执行文件）同目录的 `data.db`，与启动时的工作目录无关。`Database:Path` 可指定其他路径；相对路径仍以程序目录为基准，环境变量为 `Database__Path`。删除旧配置中的 `ConnectionStrings:DefaultConnection`，否则程序会明确拒绝启动，避免误连新建空库。
